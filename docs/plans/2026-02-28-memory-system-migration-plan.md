@@ -322,9 +322,20 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
   - No SQLite imports
 
 - **validation**: Both functions work. `queryMemory` returns formatted string. `appendToDailyLog` creates/appends to daily log files. QMD failures handled gracefully. No references to old system.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - Added `MEMORY_DIR` constant to `src/config.ts` (line 9, after STORE_DIR)
+  - Completely rewrote `src/memory.ts`: removed all old SQLite/FTS5 code, replaced with markdown-based system
+  - New exports: `todayZurich()`, `queryMemory()`, `appendToDailyLog()`
+  - Removed old exports: `buildMemoryContext`, `saveConversationTurn`, `runDecaySweep`
+  - Removed all imports from `./db.js`
+  - MEMORY.md read with ENOENT graceful handling
+  - QMD search failures handled gracefully (still returns MEMORY.md content)
+  - Daily log uses atomic file creation (`flag: 'ax'`) and `appendFile`
+  - Assistant response truncated at 2000 chars
+  - `scheduleReindex()` called fire-and-forget after daily log append
+  - Typecheck: `src/memory.ts` and `src/config.ts` compile clean; expected errors in `bot.ts` and `index.ts` (old imports) will be fixed in T7
+- **files edited/created**: `src/memory.ts`, `src/config.ts`
 
 ### T5: Create `src/consolidation.ts`
 - **depends_on**: [T4]
