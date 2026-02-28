@@ -8,6 +8,7 @@ import { checkQmdAvailable } from './qmd.js'
 import { cleanupOldUploads } from './media.js'
 import { createBot, createSendFn, BOT_COMMANDS } from './bot.js'
 import { initScheduler, stopScheduler } from './scheduler.js'
+import { initSubagentSystem } from './subagent.js'
 import { loadPersona } from './persona.js'
 import { logger } from './logger.js'
 
@@ -116,9 +117,10 @@ async function main(): Promise<void> {
   // 7.5. Register commands with Telegram menu
   await bot.api.setMyCommands(BOT_COMMANDS)
 
-  // 8. Initialize scheduler
+  // 8. Initialize scheduler + subagent system
   const sendFn = createSendFn(bot)
   initScheduler(sendFn)
+  initSubagentSystem(sendFn)
 
   // 9. Graceful shutdown
   const shutdown = () => {

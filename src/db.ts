@@ -47,6 +47,25 @@ export function initDatabase(): void {
     ON scheduled_tasks(status, next_run)
   `)
 
+  // Subagents table -- tracks background agent runs
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS subagents (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed','cancelled')),
+      result TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER
+    )
+  `)
+
+  d.exec(`
+    CREATE INDEX IF NOT EXISTS idx_subagents_chat_status
+    ON subagents(chat_id, status)
+  `)
+
   logger.info('Database initialized')
 }
 
@@ -138,6 +157,90 @@ export function setTaskStatus(id: string, status: 'active' | 'paused'): void {
 
 export function deleteTask(id: string): void {
   getDb().prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id)
+}
+
+// --- Subagent CRUD ---
+
+export interface SubagentRow {
+  id: string
+  chat_id: string
+  description: string
+  prompt: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  result: string | null
+  started_at: number
+  finished_at: number | null
+}
+
+export function insertSubagent(
+  id: string,
+  chatId: string,
+  description: string,
+  prompt: string
+): void {
+  getDb()
+    .prepare(
+      `INSERT INTO subagents (id, chat_id, description, prompt, status, started_at)
+       VALUES (?, ?, ?, ?, 'running', ?)`
+    )
+    .run(id, chatId, description, prompt, nowSeconds())
+}
+
+export function completeSubagent(id: string, result: string): void {
+  getDb()
+    .prepare(
+      `UPDATE subagents SET status = 'completed', result = ?, finished_at = ? WHERE id = ?`
+    )
+    .run(result.slice(0, 10000), nowSeconds(), id)
+}
+
+export function failSubagent(id: string, error: string): void {
+  getDb()
+    .prepare(
+      `UPDATE subagents SET status = 'failed', result = ?, finished_at = ? WHERE id = ?`
+    )
+    .run(error.slice(0, 2000), nowSeconds(), id)
+}
+
+export function cancelSubagent(id: string): void {
+  getDb()
+    .prepare(
+      `UPDATE subagents SET status = 'cancelled', finished_at = ? WHERE id = ?`
+    )
+    .run(nowSeconds(), id)
+}
+
+export function getRunningSubagents(chatId: string): SubagentRow[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM subagents WHERE chat_id = ? AND status = 'running' ORDER BY started_at DESC`
+    )
+    .all(chatId) as SubagentRow[]
+}
+
+export function getRecentSubagents(chatId: string, limit = 10): SubagentRow[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM subagents WHERE chat_id = ? ORDER BY started_at DESC LIMIT ?`
+    )
+    .all(chatId, limit) as SubagentRow[]
+}
+
+export function getSubagent(id: string): SubagentRow | null {
+  return (
+    (getDb().prepare('SELECT * FROM subagents WHERE id = ?').get(id) as SubagentRow | undefined) ??
+    null
+  )
+}
+
+export function cleanupOldSubagents(maxAgeSeconds = 7 * 86400): void {
+  const cutoff = nowSeconds() - maxAgeSeconds
+  const deleted = getDb()
+    .prepare('DELETE FROM subagents WHERE finished_at IS NOT NULL AND finished_at < ?')
+    .run(cutoff)
+  if (deleted.changes > 0) {
+    logger.info({ deleted: deleted.changes }, 'Cleaned up old subagent records')
+  }
 }
 
 // --- Helpers ---
