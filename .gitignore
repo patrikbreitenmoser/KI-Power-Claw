@@ -5,3 +5,5 @@ store/
 workspace/
 *.log
 *.pid
+.DS_Store
+docs/

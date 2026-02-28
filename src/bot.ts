@@ -192,16 +192,36 @@ async function handleMessage(
     // Save to memory
     saveConversationTurn(chatId, rawText, text)
 
-    // Send response
-    const formatted = formatForTelegram(text)
-    const chunks = splitMessage(formatted)
+    // Extract MEDIA paths from response (lines like "MEDIA: /path/to/file")
+    const mediaRegex = /^MEDIA:\s*(.+)$/gm
+    const mediaPaths: string[] = []
+    let match
+    while ((match = mediaRegex.exec(text)) !== null) {
+      mediaPaths.push(match[1].trim())
+    }
+    const textWithoutMedia = text.replace(/^MEDIA:\s*.+$/gm, '').trim()
 
-    for (const chunk of chunks) {
+    // Send media files first
+    for (const mediaPath of mediaPaths) {
       try {
-        await ctx.reply(chunk, { parse_mode: 'HTML' })
-      } catch {
-        // Fallback to plain text if HTML parsing fails
-        await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+        await ctx.replyWithPhoto(new InputFile(mediaPath))
+      } catch (err) {
+        logger.error({ err, mediaPath }, 'Failed to send media file')
+      }
+    }
+
+    // Send text response if there's anything left
+    if (textWithoutMedia) {
+      const formatted = formatForTelegram(textWithoutMedia)
+      const chunks = splitMessage(formatted)
+
+      for (const chunk of chunks) {
+        try {
+          await ctx.reply(chunk, { parse_mode: 'HTML' })
+        } catch {
+          // Fallback to plain text if HTML parsing fails
+          await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
+        }
       }
     }
   } catch (err) {
