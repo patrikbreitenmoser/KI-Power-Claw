@@ -420,9 +420,29 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
   3. Deduplication: Before appending a fact to MEMORY.md, check if an identical line already exists.
 
 - **validation**: Consolidation extracts facts. MEMORY.md backed up before writes. Today's log skipped. Concurrent calls rejected. Archive directory populated. No `runAgent()` usage.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - Installed `@anthropic-ai/sdk` (5 packages added)
+  - Added `ANTHROPIC_API_KEY` export to `src/config.ts`
+  - Created `src/consolidation.ts` with single export: `consolidateDailyLogs()`
+  - Direct Anthropic Messages API via `new Anthropic({ apiKey })` -- no agent tools, no bypassPermissions
+  - Concurrency guard: `consolidationRunning` boolean rejects overlapping calls
+  - ANTHROPIC_API_KEY guard: skips consolidation with warning if key not set
+  - Daily log listing: `readdir` + `/^\d{4}-\d{2}-\d{2}\.md$/` pattern filter
+  - Today's log skipped: `date < todayZurich()` comparison
+  - MEMORY.md backup: `copyFile` to `.bak` before any modifications
+  - Content truncation: 50k chars max per log sent to API
+  - Fact extraction: claude-sonnet-4-6, max_tokens 1024, selective extraction prompt
+  - Output validation: lines must start with `- `, "nothing notable" recognized
+  - Section classification: keyword regex matching (Preferences/Projects/Important Dates/Misc)
+  - Deduplication: identical lines in MEMORY.md skipped
+  - Section insertion helper: finds header, inserts before next `## ` or EOF
+  - Archive: processed logs moved to `memory/archive/` via `rename()`
+  - QMD reindex triggered after all consolidation completes
+  - 200-line warning for MEMORY.md growth
+  - Per-log error handling: one failure doesn't abort the batch
+  - Typecheck: `consolidation.ts` compiles clean; pre-existing errors in `bot.ts`/`index.ts` (old imports) unaffected, to be fixed in T7
+- **files edited/created**: `src/consolidation.ts` (new), `src/config.ts` (added ANTHROPIC_API_KEY), `package.json`, `package-lock.json`
 
 ### T6: Clean Up `src/db.ts` + Add Config Constants
 - **depends_on**: [T4]

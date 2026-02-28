@@ -22,6 +22,9 @@ export const ALLOWED_USER_IDS: Set<string> = new Set(
 // Voice STT (Groq)
 export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? ''
 
+// Anthropic (for consolidation -- direct Messages API, no agent tools)
+export const ANTHROPIC_API_KEY = env['ANTHROPIC_API_KEY'] ?? ''
+
 // Video analysis (Gemini)
 export const GOOGLE_API_KEY = env['GOOGLE_API_KEY'] ?? ''
 
