@@ -192,7 +192,11 @@ async function executeBackground(
       const summary = result.length > 3000
         ? result.slice(0, 3000) + '\n\n...(truncated, use /agents <id> to see full result)'
         : result
-      await sendFn(chatId, `Background task done: ${description}\n\n${summary}`)
+      try {
+        await sendFn(chatId, `Background task done: ${description}\n\n${summary}`)
+      } catch (notifyErr) {
+        logger.error({ err: notifyErr, agentId: id }, 'Failed to notify user about completed subagent')
+      }
     }
 
     logger.info({ agentId: id, chatId }, 'Subagent completed')
