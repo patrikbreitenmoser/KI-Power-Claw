@@ -7,3 +7,8 @@ workspace/
 *.pid
 .DS_Store
 docs/
+
+# Memory system
+memory/*.md
+!memory/MEMORY.md
+memory/archive/
