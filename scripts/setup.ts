@@ -23,8 +23,15 @@ const fail = (msg: string) => console.log(`  ${RED}✗${RESET} ${msg}`)
 const heading = (msg: string) => console.log(`\n${BOLD}${msg}${RESET}\n`)
 
 const rl = createInterface({ input: process.stdin, output: process.stdout })
-const ask = (q: string): Promise<string> =>
-  new Promise((resolve) => rl.question(`  ${q}: `, resolve))
+const ask = (q: string, opts?: { signal?: AbortSignal }): Promise<string> =>
+  new Promise((resolve) => {
+    if (opts?.signal) {
+      rl.question(`  ${q}: `, { signal: opts.signal }, (answer) => resolve(answer))
+      opts.signal.addEventListener('abort', () => resolve(''), { once: true })
+    } else {
+      rl.question(`  ${q}: `, resolve)
+    }
+  })
 
 const PINK = '\x1b[38;2;255;64;129m'
 const BANNER = `${PINK}
@@ -162,9 +169,6 @@ This isn't just metadata. It's the start of figuring out who you are.
 
   // Get chat ID by starting the bot temporarily
   heading('Getting your chat ID')
-  console.log('  I\'ll start the bot temporarily to capture your Telegram chat ID.')
-  console.log(`  ${DIM}Open Telegram, find your bot, and send it any message (e.g. "hi").${RESET}`)
-  console.log(`  ${DIM}If you already know your chat ID, paste it below instead.${RESET}\n`)
 
   let chatId = ''
 
@@ -180,6 +184,9 @@ This isn't just metadata. It's the start of figuring out who you are.
     console.log(`  ${DIM}Double-check the token from @BotFather and run setup again.${RESET}`)
     process.exit(1)
   }
+
+  console.log(`  Open Telegram, search for @${tempBot.botInfo.username}, and send any message (e.g. "hi").`)
+  console.log(`  ${DIM}If you already know your chat ID, paste it below instead.${RESET}\n`)
 
   const chatIdFromBot = new Promise<string>((resolveId) => {
     const timer = setTimeout(() => resolveId(''), 120_000) // 2 min timeout
@@ -198,9 +205,10 @@ This isn't just metadata. It's the start of figuring out who you are.
   botRunning = true
   console.log('  Waiting for a message from you in Telegram...\n')
 
+  const askAc = new AbortController()
   const manualChatId = await Promise.race([
-    ask('Chat ID (or just message the bot)').then(v => v.trim()),
-    chatIdFromBot,
+    ask('Chat ID (or just message the bot)', { signal: askAc.signal }).then(v => v.trim()),
+    chatIdFromBot.then(id => { askAc.abort(); return id }),
   ])
 
   // If the manual input resolved first, use it; otherwise use bot-captured ID
@@ -230,11 +238,13 @@ This isn't just metadata. It's the start of figuring out who you are.
   // Install background service
   heading('Background service')
   const os = platform()
+  let serviceInstalled = false
 
   if (os === 'darwin') {
     const shouldInstall = await ask('Install as macOS launch agent? (y/n)')
     if (shouldInstall.toLowerCase() === 'y') {
       installLaunchd()
+      serviceInstalled = true
     } else {
       warn('Skipped service installation. Run with `npm start` manually.')
     }
@@ -242,6 +252,7 @@ This isn't just metadata. It's the start of figuring out who you are.
     const shouldInstall = await ask('Install as systemd user service? (y/n)')
     if (shouldInstall.toLowerCase() === 'y') {
       installSystemd()
+      serviceInstalled = true
     } else {
       warn('Skipped service installation. Run with `npm start` manually.')
     }
@@ -253,13 +264,19 @@ This isn't just metadata. It's the start of figuring out who you are.
   }
 
   // Done
+  const username = tempBot.botInfo.username
   heading('Setup complete!')
-  console.log('  Next steps:')
-  console.log(`  ${GREEN}1.${RESET} Run: npm start`)
-  console.log(`  ${GREEN}2.${RESET} Open Telegram and message your bot`)
-  console.log(`  ${GREEN}3.${RESET} Try: "What can you do?"`)
+
+  if (serviceInstalled) {
+    console.log(`  Your bot is running! Open Telegram, search for @${username}, and say hi.`)
+  } else {
+    console.log('  Next steps:')
+    console.log(`  ${GREEN}1.${RESET} Run: npm start`)
+    console.log(`  ${GREEN}2.${RESET} Open Telegram, search for @${username}, and say hi`)
+  }
+
   console.log('')
-  console.log(`  ${DIM}Logs: /tmp/kipowerclaw.log (if service installed)${RESET}`)
+  console.log(`  ${DIM}For memory search, install qmd: https://github.com/tobi/qmd${RESET}`)
   console.log(`  ${DIM}Status: npm run status${RESET}`)
   console.log('')
 
