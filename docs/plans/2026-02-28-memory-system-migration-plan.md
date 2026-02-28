@@ -217,9 +217,16 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
   - QMD's own query parser may interpret `AND`, `OR`, `NOT`, `*`, `"` -- acceptable risk for single-user bot
 
 - **validation**: Module exports typed functions. `searchMemory` returns `QmdSearchResult[]`. `scheduleReindex` debounces correctly. Timeout kills hung processes. No `any` types.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - Created `src/qmd.ts` with all four exports: `searchMemory`, `scheduleReindex`, `checkQmdAvailable`, `QmdSearchResult`
+  - Collection name constant `QMD_COLLECTION = 'bot-memory'` as single source of truth
+  - Type guard `isQmdSearchResult` for defensive JSON parsing
+  - All `execFile` calls use args arrays (no shell spawning)
+  - Timeouts: search 10s, update 30s, embed 120s, status 5s
+  - Reindex debounced at 5s with `reindexInProgress` mutex
+  - `npm run typecheck` passes clean
+- **files edited/created**: `src/qmd.ts`
 
 ### T4: Rewrite `src/memory.ts`
 - **depends_on**: [T2, T3]
