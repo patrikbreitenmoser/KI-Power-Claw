@@ -32,6 +32,15 @@ If you need clarification, ask one short question.
 - This project lives at the directory where CLAUDE.md is located
 - Gemini API key: stored in this project's .env as GOOGLE_API_KEY
 
+## Memory System
+
+- Daily logs: memory/YYYY-MM-DD.md (conversation history, written automatically)
+- Long-term memory: memory/MEMORY.md (curated facts, updated by consolidation or directly)
+- Search: QMD hybrid search over memory/ directory
+- Consolidation: runs nightly at 23:00 Zurich or via /consolidate command
+- You can read and update memory/MEMORY.md directly when you learn important things
+- Archive: consolidated daily logs moved to memory/archive/
+
 ## Available Skills
 
 | Skill | Triggers |
@@ -80,7 +89,8 @@ IDENTITY.md fields (keep the `- Key: Value` format):
 
 ## Memory
 
-Context persists via Claude Code session resumption.
+Long-term memory persists via memory/MEMORY.md and daily logs in memory/.
+Context also persists via Claude Code session resumption.
 You don't need to re-introduce yourself each message.
 
 ## Special Commands
@@ -91,9 +101,10 @@ Check remaining context window:
 2. Get last cache_read_input_tokens value
 3. Calculate: used / 200000 * 100
 4. Report: "Context window: XX% used -- ~XXk tokens remaining"
+Note: Long-term memory persists via memory/MEMORY.md and daily logs, independent of context window.
 
 ### `checkpoint`
-Save session summary to SQLite:
+Save session summary:
 1. Write 3-5 bullet summary of key decisions/findings
-2. Insert into memories table as semantic memory with salience 5.0
+2. Append to memory/MEMORY.md under ## Active Threads
 3. Confirm: "Checkpoint saved. Safe to /newchat."

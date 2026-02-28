@@ -613,9 +613,20 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
      - `saveConversationTurn()` -> `appendToDailyLog()`
 
 - **validation**: CLAUDE.md documents the new memory system. `checkpoint` command references correct functions. No references to deleted SQLite memory functions.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - Added `## Memory System` section after `## Your Environment` with daily logs, MEMORY.md, QMD search, consolidation, and archive docs
+  - Updated `## Memory` section: added note about memory/MEMORY.md and daily logs persistence
+  - Updated `convolife` command: added note that long-term memory persists independent of context window
+  - Updated `checkpoint` command: replaced SQLite/memories table/salience references with MEMORY.md append under ## Active Threads
+  - Verified no remaining references to old memory functions (insertMemory, buildMemoryContext, saveConversationTurn, FTS5, salience, memories table)
+  - Updated sub-agent spawning plan (`docs/plans/2026-02-28-feat-sub-agent-spawning-plan.md`):
+    - `buildMemoryContext()` -> `queryMemory()` (2 occurrences)
+    - `insertMemory()` -> `appendToDailyLog()` (2 occurrences)
+    - `saveConversationTurn()` -> `appendToDailyLog()` (1 occurrence)
+    - `FTS5` -> `QMD` in acceptance criteria
+    - Updated db.ts internal reference (removed memory from CRUD list)
+- **files edited/created**: `CLAUDE.md`, `docs/plans/2026-02-28-feat-sub-agent-spawning-plan.md`
 
 ### T9: Build, Test, and Validate End-to-End
 - **depends_on**: [T7, T8]
