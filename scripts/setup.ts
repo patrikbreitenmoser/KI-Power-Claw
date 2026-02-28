@@ -4,6 +4,7 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platform, homedir } from 'node:os'
+import { Bot } from 'grammy'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..')
@@ -22,8 +23,15 @@ const fail = (msg: string) => console.log(`  ${RED}✗${RESET} ${msg}`)
 const heading = (msg: string) => console.log(`\n${BOLD}${msg}${RESET}\n`)
 
 const rl = createInterface({ input: process.stdin, output: process.stdout })
-const ask = (q: string): Promise<string> =>
-  new Promise((resolve) => rl.question(`  ${q}: `, resolve))
+const ask = (q: string, opts?: { signal?: AbortSignal }): Promise<string> =>
+  new Promise((resolve) => {
+    if (opts?.signal) {
+      rl.question(`  ${q}: `, { signal: opts.signal }, (answer) => resolve(answer))
+      opts.signal.addEventListener('abort', () => resolve(''), { once: true })
+    } else {
+      rl.question(`  ${q}: `, resolve)
+    }
+  })
 
 const PINK = '\x1b[38;2;255;64;129m'
 const BANNER = `${PINK}
@@ -64,6 +72,15 @@ async function main() {
     process.exit(1)
   }
 
+  // Check QMD
+  try {
+    execSync('qmd --version 2>&1', { encoding: 'utf-8' })
+    ok('QMD CLI')
+  } catch {
+    fail('QMD CLI not found. Install it from https://github.com/tobi/qmd')
+    process.exit(1)
+  }
+
   // Build the project
   heading('Building project')
   const buildResult = spawnSync('npm', ['run', 'build'], {
@@ -91,6 +108,12 @@ async function main() {
     process.exit(1)
   }
 
+  // Validate token format (digits:alphanumeric)
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken.trim())) {
+    fail('That doesn\'t look like a valid bot token. Expected format: 123456:ABC-DEF...')
+    process.exit(1)
+  }
+
   console.log('')
   const groqKey = await ask('Groq API key for voice transcription (or press Enter to skip)')
   const googleKey = await ask('Google API key for video analysis (or press Enter to skip)')
@@ -108,56 +131,109 @@ async function main() {
   writeFileSync(resolve(PROJECT_ROOT, '.env'), envLines.join('\n') + '\n')
   ok('.env written')
 
-  // Open CLAUDE.md for personalization
-  heading('Personalizing CLAUDE.md')
-  const editor = process.env.EDITOR ?? 'nano'
-  console.log(`  Opening CLAUDE.md in ${editor}...`)
-  console.log(`  ${DIM}Fill in [YOUR NAME], [YOUR ASSISTANT NAME], and your context.${RESET}`)
-  console.log(`  ${DIM}Save and close when done.${RESET}\n`)
+  // Personalize bot identity and user info
+  heading('Personalizing your bot')
+  console.log(`  ${DIM}Press Enter to keep the default value.${RESET}\n`)
+
+  const userName = (await ask('Your name (or press Enter to skip)')).trim()
+  const userTimezone = (await ask('Your timezone, e.g. Europe/Zurich (Enter = Europe/Zurich)')).trim() || 'Europe/Zurich'
+  const botName = (await ask('Name for your bot (Enter = Assistant)')).trim() || 'Assistant'
+  const botEmoji = (await ask('Emoji for your bot (Enter = 🤖)')).trim() || '🤖'
+
+  // Write USER.md
+  const userMd = `# USER.md - About Your Human
+
+Learn about the person you're helping. Update this as you go.
+
+- Name: ${userName}
+- What to call them: ${userName}
+- Pronouns:
+- Timezone: ${userTimezone}
+- Notes:
+
+## Context
+
+<!-- What do they care about? What projects are they working on? -->
+<!-- What annoys them? What makes them laugh? -->
+<!-- Build this over time. -->
+
+The more you know, the better you can help. But remember -- you're learning about a person, not building a dossier. Respect the difference.
+`
+  writeFileSync(resolve(PROJECT_ROOT, 'USER.md'), userMd)
+  ok('USER.md written')
+
+  // Write IDENTITY.md
+  const identityMd = `# IDENTITY.md - Who Am I?
+
+- Name: ${botName}
+- Creature: AI assistant
+- Vibe:
+- Emoji: ${botEmoji}
+- Avatar:
+
+This isn't just metadata. It's the start of figuring out who you are.
+`
+  writeFileSync(resolve(PROJECT_ROOT, 'IDENTITY.md'), identityMd)
+  ok('IDENTITY.md written')
+
+  // Get chat ID by starting the bot temporarily
+  heading('Getting your chat ID')
+
+  let chatId = ''
+
+  // Start a temporary bot that listens for the first incoming message
+  const tempBot = new Bot(botToken.trim())
+  let botRunning = false
 
   try {
-    spawnSync(editor, [resolve(PROJECT_ROOT, 'CLAUDE.md')], { stdio: 'inherit' })
-    ok('CLAUDE.md personalized')
-  } catch {
-    warn(`Could not open editor. Edit CLAUDE.md manually at:\n    ${resolve(PROJECT_ROOT, 'CLAUDE.md')}`)
+    await tempBot.init()
+    ok(`Bot connected: @${tempBot.botInfo.username}`)
+  } catch (err: any) {
+    fail(`Invalid bot token: ${err.message ?? err}`)
+    console.log(`  ${DIM}Double-check the token from @BotFather and run setup again.${RESET}`)
+    process.exit(1)
   }
 
-  // Get chat ID
-  heading('Getting your chat ID')
-  console.log('  I\'ll start the bot temporarily. Send /chatid to your bot in Telegram.')
-  console.log(`  ${DIM}Press Enter when ready...${RESET}`)
-  await ask('Press Enter to start bot')
+  console.log(`  Open Telegram, search for @${tempBot.botInfo.username}, and send any message (e.g. "hi").`)
+  console.log(`  ${DIM}If you already know your chat ID, paste it below instead.${RESET}\n`)
 
-  console.log('  Starting bot... Send /chatid to your bot now.\n')
+  const chatIdFromBot = new Promise<string>((resolveId) => {
+    const timer = setTimeout(() => resolveId(''), 120_000) // 2 min timeout
 
-  // Start bot in background, watch for chat ID
-  const chatIdPromise = new Promise<string>((resolve) => {
-    const timer = setTimeout(() => resolve(''), 120_000) // 2 min timeout
-
-    const checkInterval = setInterval(() => {
-      // Read .env to check if ALLOWED_USER_IDS was manually set
+    tempBot.on('message', async (ctx) => {
+      clearTimeout(timer)
+      const id = String(ctx.chat.id)
       try {
-        const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
-        const match = envContent.match(/ALLOWED_USER_IDS=(\d+)/)
-        if (match && match[1]) {
-          clearInterval(checkInterval)
-          clearTimeout(timer)
-          resolve(match[1])
-        }
-      } catch { /* ignore */ }
-    }, 2000)
+        await ctx.reply(`Got it! Your chat ID is ${id}. Finishing setup...`)
+      } catch { /* best effort */ }
+      resolveId(id)
+    })
   })
 
-  console.log(`  ${DIM}Alternatively, paste your chat ID here:${RESET}`)
-  const manualChatId = await ask('Chat ID (or wait for /chatid)')
+  tempBot.start()
+  botRunning = true
+  console.log('  Waiting for a message from you in Telegram...\n')
 
-  let chatId = manualChatId.trim()
-  if (!chatId) {
-    chatId = await chatIdPromise
+  const askAc = new AbortController()
+  const manualChatId = await Promise.race([
+    ask('Chat ID (or just message the bot)', { signal: askAc.signal }).then(v => v.trim()),
+    chatIdFromBot.then(id => { askAc.abort(); return id }),
+  ])
+
+  // If the manual input resolved first, use it; otherwise use bot-captured ID
+  if (manualChatId && /^\d+$/.test(manualChatId)) {
+    chatId = manualChatId
+  } else {
+    // Wait for the bot to capture it (may already be resolved)
+    chatId = await chatIdFromBot
+  }
+
+  // Stop the temporary bot
+  if (botRunning) {
+    await tempBot.stop()
   }
 
   if (chatId) {
-    // Update .env with chat ID
     const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
     writeFileSync(
       resolve(PROJECT_ROOT, '.env'),
@@ -165,17 +241,38 @@ async function main() {
     )
     ok(`Chat ID set: ${chatId}`)
   } else {
-    warn('No chat ID captured. You can set ALLOWED_USER_IDS in .env manually, or send /chatid to your bot after starting it.')
+    warn('No chat ID captured. Set ALLOWED_USER_IDS in .env manually, or leave it empty -- the bot will accept anyone until you set it.')
+  }
+
+  // Set up QMD for memory search
+  heading('Memory search (QMD)')
+  const memoryDir = resolve(PROJECT_ROOT, 'memory')
+
+  try {
+    execSync(`qmd collection add "${memoryDir}" --name bot-memory --mask "**/*.md" 2>&1`, { encoding: 'utf-8' })
+    ok('QMD collection created')
+  } catch {
+    ok('QMD collection already exists')
+  }
+
+  try {
+    execSync('qmd update 2>&1', { encoding: 'utf-8', timeout: 30_000 })
+    execSync('qmd embed 2>&1', { encoding: 'utf-8', timeout: 120_000 })
+    ok('QMD index built')
+  } catch (err: any) {
+    warn(`QMD indexing failed: ${err.message ?? err}`)
   }
 
   // Install background service
   heading('Background service')
   const os = platform()
+  let serviceInstalled = false
 
   if (os === 'darwin') {
     const shouldInstall = await ask('Install as macOS launch agent? (y/n)')
     if (shouldInstall.toLowerCase() === 'y') {
       installLaunchd()
+      serviceInstalled = true
     } else {
       warn('Skipped service installation. Run with `npm start` manually.')
     }
@@ -183,6 +280,7 @@ async function main() {
     const shouldInstall = await ask('Install as systemd user service? (y/n)')
     if (shouldInstall.toLowerCase() === 'y') {
       installSystemd()
+      serviceInstalled = true
     } else {
       warn('Skipped service installation. Run with `npm start` manually.')
     }
@@ -194,13 +292,18 @@ async function main() {
   }
 
   // Done
+  const username = tempBot.botInfo.username
   heading('Setup complete!')
-  console.log('  Next steps:')
-  console.log(`  ${GREEN}1.${RESET} Run: npm start`)
-  console.log(`  ${GREEN}2.${RESET} Open Telegram and message your bot`)
-  console.log(`  ${GREEN}3.${RESET} Try: "What can you do?"`)
+
+  if (serviceInstalled) {
+    console.log(`  Your bot is running! Open Telegram, search for @${username}, and say hi.`)
+  } else {
+    console.log('  Next steps:')
+    console.log(`  ${GREEN}1.${RESET} Run: npm start`)
+    console.log(`  ${GREEN}2.${RESET} Open Telegram, search for @${username}, and say hi`)
+  }
+
   console.log('')
-  console.log(`  ${DIM}Logs: /tmp/kipowerclaw.log (if service installed)${RESET}`)
   console.log(`  ${DIM}Status: npm run status${RESET}`)
   console.log('')
 

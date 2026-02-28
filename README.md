@@ -47,45 +47,29 @@ Optional:
 
 ## Quick Start
 
-1. Install dependencies:
-
 ```bash
 npm install
+npm run setup
 ```
 
-2. Build:
+The setup wizard walks you through everything: bot token, API keys, persona, chat ID capture, QMD memory setup, and background service installation.
 
-```bash
-npm run build
-```
+<details>
+<summary>Manual setup (without wizard)</summary>
 
-3. Configure environment:
+1. `npm install`
+2. `npm run build`
+3. `cp .env.example .env` and fill in `TELEGRAM_BOT_TOKEN` and `ALLOWED_USER_IDS`
+4. Set up QMD for memory search:
+   ```bash
+   qmd collection add ./memory --name bot-memory --mask "**/*.md"
+   qmd update && qmd embed
+   ```
+5. `npm start`
 
-```bash
-cp .env.example .env
-```
+</details>
 
-4. Fill `.env` (minimum):
-- `TELEGRAM_BOT_TOKEN`
-- `ALLOWED_USER_IDS` (comma-separated Telegram user IDs)
-
-5. Configure QMD collection once:
-
-If `qmd` is not installed yet, see [tobi/qmd](https://github.com/tobi/qmd).
-
-```bash
-qmd collection add ./memory --name bot-memory --mask "**/*.md"
-qmd update
-qmd embed
-```
-
-6. Run:
-
-```bash
-npm start
-```
-
-Dev mode:
+### Dev mode
 
 ```bash
 npm run dev
