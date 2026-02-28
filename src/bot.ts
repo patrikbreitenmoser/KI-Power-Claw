@@ -12,6 +12,16 @@ import { buildMemoryContext, saveConversationTurn } from './memory.js'
 import { getPersonaContext, getBotEmoji, reloadPersona } from './persona.js'
 import { transcribeAudio, voiceCapabilities } from './voice.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
+import {
+  spawnSubagent,
+  cancelSubagent,
+  listRunning,
+  listRecent,
+  getSubagentInfo,
+  runningCount,
+  detectBackgroundIntent,
+  parseSubagentBlocks,
+} from './subagent.js'
 import { logger } from './logger.js'
 
 export const BOT_COMMANDS: Array<{ command: string; description: string }> = [
@@ -23,6 +33,7 @@ export const BOT_COMMANDS: Array<{ command: string; description: string }> = [
   { command: 'model', description: 'Switch Claude model' },
   { command: 'voice', description: 'Toggle voice reply mode' },
   { command: 'schedule', description: 'Manage scheduled tasks' },
+  { command: 'agents', description: 'List background agents' },
 ]
 
 // Track which chats have voice reply mode enabled
@@ -159,6 +170,19 @@ async function handleMessage(
 
   if (!isAuthorised(ctx.from?.id)) return
 
+  // Check if user wants this to run in the background
+  if (detectBackgroundIntent(rawText)) {
+    const model = resolveModel(chatId)
+    const id = spawnSubagent(chatId, rawText.slice(0, 80), rawText, model)
+    const running = runningCount(chatId)
+    await ctx.reply(
+      `Got it, working on this in the background (agent ${id}).\n` +
+        `${running} background agent${running === 1 ? '' : 's'} running.\n` +
+        `Use /agents to check status.`
+    )
+    return
+  }
+
   // Build persona + memory context
   const personaContext = getPersonaContext()
   const memoryPrefix = buildMemoryContext(chatId, rawText)
@@ -192,14 +216,22 @@ async function handleMessage(
     // Save to memory
     saveConversationTurn(chatId, rawText, text)
 
+    // Parse and spawn any SUBAGENT blocks the agent requested
+    const { cleaned: textAfterSubagents, subagents } = parseSubagentBlocks(text)
+    for (const sub of subagents) {
+      const subModel = resolveModel(chatId)
+      const id = spawnSubagent(chatId, sub.description, sub.prompt, subModel)
+      await ctx.reply(`Spawned background agent (${id}): ${sub.description}`)
+    }
+
     // Extract MEDIA paths from response (lines like "MEDIA: /path/to/file")
     const mediaRegex = /^MEDIA:\s*(.+)$/gm
     const mediaPaths: string[] = []
     let match
-    while ((match = mediaRegex.exec(text)) !== null) {
+    while ((match = mediaRegex.exec(textAfterSubagents)) !== null) {
       mediaPaths.push(match[1].trim())
     }
-    const textWithoutMedia = text.replace(/^MEDIA:\s*.+$/gm, '').trim()
+    const textWithoutMedia = textAfterSubagents.replace(/^MEDIA:\s*.+$/gm, '').trim()
 
     // Send media files first
     for (const mediaPath of mediaPaths) {
@@ -355,6 +387,73 @@ export function createBot(): Bot {
 
     // Delegate to Claude for natural language scheduling
     await handleMessage(ctx, `Manage my scheduled tasks: ${parts}`)
+  })
+
+  // /agents
+  bot.command('agents', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
+    const chatId = String(ctx.chat.id)
+    const arg = (ctx.message?.text ?? '').replace('/agents', '').trim()
+
+    // /agents cancel <id>
+    if (arg.startsWith('cancel ')) {
+      const id = arg.replace('cancel ', '').trim()
+      const cancelled = cancelSubagent(id)
+      if (cancelled) {
+        await ctx.reply(`Agent ${id} cancelled.`)
+      } else {
+        await ctx.reply(`No running agent found with ID ${id}.`)
+      }
+      return
+    }
+
+    // /agents <id> -- show detail for a specific agent
+    if (arg && !arg.includes(' ')) {
+      const agent = getSubagentInfo(arg)
+      if (!agent) {
+        await ctx.reply(`No agent found with ID ${arg}.`)
+        return
+      }
+      const elapsed = agent.finished_at
+        ? `${agent.finished_at - agent.started_at}s`
+        : `${Math.floor(Date.now() / 1000) - agent.started_at}s (running)`
+
+      let msg = `Agent ${agent.id}\n`
+      msg += `Status: ${agent.status}\n`
+      msg += `Description: ${agent.description}\n`
+      msg += `Duration: ${elapsed}\n`
+      if (agent.result) {
+        const preview = agent.result.length > 2000
+          ? agent.result.slice(0, 2000) + '\n...(truncated)'
+          : agent.result
+        msg += `\nResult:\n${preview}`
+      }
+      await ctx.reply(msg)
+      return
+    }
+
+    // /agents -- list recent agents
+    const recent = listRecent(chatId, 10)
+    if (recent.length === 0) {
+      await ctx.reply('No background agents yet.')
+      return
+    }
+
+    const STATUS_ICONS: Record<string, string> = {
+      running: '...',
+      completed: 'ok',
+      failed: 'ERR',
+      cancelled: 'X',
+    }
+
+    let msg = 'Background agents:\n\n'
+    for (const a of recent) {
+      const icon = STATUS_ICONS[a.status] ?? a.status
+      const desc = a.description.slice(0, 60)
+      msg += `[${icon}] ${a.id} - ${desc}\n`
+    }
+    msg += '\nUse /agents <id> for details, /agents cancel <id> to cancel.'
+    await ctx.reply(msg)
   })
 
   // Text messages
