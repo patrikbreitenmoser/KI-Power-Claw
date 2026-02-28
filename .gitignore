@@ -7,3 +7,12 @@ workspace/
 *.pid
 .DS_Store
 docs/
+
+# Claude Code
+.claude/worktrees/
+.claude/settings.local.json
+
+# Memory system
+memory/*.md
+!memory/MEMORY.md
+memory/archive/

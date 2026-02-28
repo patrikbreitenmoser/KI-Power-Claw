@@ -1,8 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { STORE_DIR, TELEGRAM_BOT_TOKEN } from './config.js'
+import { CronExpressionParser } from 'cron-parser'
+import { STORE_DIR, MEMORY_DIR, TELEGRAM_BOT_TOKEN } from './config.js'
 import { initDatabase } from './db.js'
-import { runDecaySweep } from './memory.js'
+import { consolidateDailyLogs } from './consolidation.js'
+import { checkQmdAvailable } from './qmd.js'
 import { cleanupOldUploads } from './media.js'
 import { createBot, createSendFn, BOT_COMMANDS } from './bot.js'
 import { initScheduler, stopScheduler } from './scheduler.js'
@@ -11,7 +13,6 @@ import { loadPersona } from './persona.js'
 import { logger } from './logger.js'
 
 const PID_FILE = resolve(STORE_DIR, 'kipowerclaw.pid')
-const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 const PINK = '\x1b[38;2;255;64;129m'
 const RESET = '\x1b[0m'
@@ -58,6 +59,19 @@ function releaseLock(): void {
   }
 }
 
+function scheduleNextConsolidation(): void {
+  const expr = CronExpressionParser.parse('0 23 * * *', { tz: 'Europe/Zurich' })
+  const ms = expr.next().getTime() - Date.now()
+  setTimeout(async () => {
+    try {
+      await consolidateDailyLogs()
+    } catch (err) {
+      logger.error({ err }, 'Nightly consolidation failed')
+    }
+    scheduleNextConsolidation()
+  }, ms)
+}
+
 async function main(): Promise<void> {
   // 1. Banner
   console.log(BANNER)
@@ -78,9 +92,21 @@ async function main(): Promise<void> {
   // 4.5. Load persona files (SOUL.md, USER.md, IDENTITY.md)
   loadPersona()
 
-  // 5. Run initial memory decay sweep + schedule daily
-  runDecaySweep()
-  const decayTimer = setInterval(runDecaySweep, DECAY_INTERVAL_MS)
+  // 5. Ensure memory directory exists
+  mkdirSync(MEMORY_DIR, { recursive: true })
+
+  // 5.1. Check QMD availability (non-fatal)
+  await checkQmdAvailable()
+
+  // 5.2. Run initial consolidation (catch up on missed days)
+  try {
+    await consolidateDailyLogs()
+  } catch (err) {
+    logger.error({ err }, 'Startup consolidation failed')
+  }
+
+  // 5.3. Schedule nightly consolidation
+  scheduleNextConsolidation()
 
   // 6. Clean up old uploads
   cleanupOldUploads()
@@ -100,7 +126,6 @@ async function main(): Promise<void> {
   const shutdown = () => {
     logger.info('Shutting down...')
     stopScheduler()
-    clearInterval(decayTimer)
     bot.stop()
     releaseLock()
     process.exit(0)

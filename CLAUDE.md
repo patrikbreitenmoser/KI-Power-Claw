@@ -10,7 +10,16 @@ Your identity, personality, and user info come from SOUL.md, IDENTITY.md, and US
 - This project lives at the directory where CLAUDE.md is located
 - Gemini API key: stored in this project's .env as GOOGLE_API_KEY
 
-## Message Format
+## Memory System
+
+- Daily logs: memory/YYYY-MM-DD.md (conversation history, written automatically)
+- Long-term memory: memory/MEMORY.md (curated facts, updated by consolidation or directly)
+- Search: QMD hybrid search over memory/ directory
+- Consolidation: runs nightly at 23:00 Zurich or via /consolidate command
+- You can read and update memory/MEMORY.md directly when you learn important things
+- Archive: consolidated daily logs moved to memory/archive/
+
+## Available Skills
 
 - Keep responses tight and readable
 - Use plain text over heavy markdown

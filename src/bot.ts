@@ -1,14 +1,18 @@
 import { Bot, Context, InputFile } from 'grammy'
+import { readFile, readdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import {
   TELEGRAM_BOT_TOKEN,
   ALLOWED_USER_IDS,
   MAX_MESSAGE_LENGTH,
   TYPING_REFRESH_MS,
   DEFAULT_MODEL,
+  MEMORY_DIR,
 } from './config.js'
-import { getSession, setSession, clearSession, getMemoryCount, getRecentMemoriesSummary } from './db.js'
+import { getSession, setSession, clearSession } from './db.js'
 import { runAgent } from './agent.js'
-import { buildMemoryContext, saveConversationTurn } from './memory.js'
+import { queryMemory, appendToDailyLog } from './memory.js'
+import { consolidateDailyLogs } from './consolidation.js'
 import { getPersonaContext, getBotEmoji, reloadPersona } from './persona.js'
 import { transcribeAudio, voiceCapabilities } from './voice.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
@@ -185,7 +189,10 @@ async function handleMessage(
 
   // Build persona + memory context
   const personaContext = getPersonaContext()
-  const memoryPrefix = buildMemoryContext(chatId, rawText)
+
+  // Start typing immediately (before async memory query)
+  ctx.api.sendChatAction(ctx.chat!.id, 'typing').catch(() => {})
+  const memoryPrefix = await queryMemory(rawText)
   const fullMessage = personaContext + (memoryPrefix ? memoryPrefix : '') + rawText
 
   // Get existing session
@@ -213,8 +220,8 @@ async function handleMessage(
       return
     }
 
-    // Save to memory
-    saveConversationTurn(chatId, rawText, text)
+    // Save to daily log (fire-and-forget)
+    appendToDailyLog(rawText, text).catch(err => logger.warn({ err }, 'Failed to save daily log'))
 
     // Parse and spawn any SUBAGENT blocks the agent requested
     const { cleaned: textAfterSubagents, subagents } = parseSubagentBlocks(text)
@@ -307,21 +314,61 @@ export function createBot(): Bot {
   // /memory
   bot.command('memory', async (ctx) => {
     if (!isAuthorised(ctx.from?.id)) return
-    const chatId = String(ctx.chat.id)
-    const count = getMemoryCount(chatId)
-    const recent = getRecentMemoriesSummary(chatId, 5)
 
-    if (count === 0) {
+    // Count daily log files
+    let dailyLogCount = 0
+    const dailyLogPattern = /^\d{4}-\d{2}-\d{2}\.md$/
+    try {
+      const files = await readdir(MEMORY_DIR)
+      dailyLogCount = files.filter(f => dailyLogPattern.test(f)).length
+    } catch { /* directory may not exist yet */ }
+
+    // Count long-term facts in MEMORY.md
+    let factCount = 0
+    let recentToday = ''
+    try {
+      const memoryMd = await readFile(resolve(MEMORY_DIR, 'MEMORY.md'), 'utf-8')
+      factCount = memoryMd.split('\n').filter(l => l.startsWith('- ')).length
+    } catch { /* file may not exist yet */ }
+
+    // Read today's log for recent entries
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Zurich' })
+    try {
+      const todayLog = await readFile(resolve(MEMORY_DIR, `${today}.md`), 'utf-8')
+      // Extract last few entries (each starts with ## HH:MM)
+      const entries = todayLog.split(/^## \d/m).slice(-3)
+      if (entries.length > 0) {
+        recentToday = entries.map(e => {
+          const lines = e.trim().split('\n')
+          const userLine = lines.find(l => l.startsWith('**User**:'))
+          return userLine ? userLine.slice(0, 100) : ''
+        }).filter(Boolean).join('\n')
+      }
+    } catch { /* no log today yet */ }
+
+    if (dailyLogCount === 0 && factCount === 0) {
       await ctx.reply('No memories stored yet.')
       return
     }
 
-    let msg = `Memories: ${count} total\n\nRecent:\n`
-    for (const m of recent) {
-      const sector = m.sector === 'semantic' ? '🧠' : '💬'
-      msg += `${sector} ${m.content.slice(0, 80)}...\n`
+    let msg = `Memory: ${dailyLogCount} daily logs, ${factCount} long-term facts`
+    if (recentToday) {
+      msg += `\n\nRecent today:\n${recentToday}`
     }
     await ctx.reply(msg)
+  })
+
+  // /consolidate
+  bot.command('consolidate', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
+    await ctx.reply('Running consolidation...')
+    try {
+      const { processed, facts } = await consolidateDailyLogs()
+      await ctx.reply(`Consolidation done: processed ${processed} logs, extracted ${facts} facts`)
+    } catch (err) {
+      logger.error({ err }, 'Manual consolidation failed')
+      await ctx.reply('Consolidation failed. Check logs.')
+    }
   })
 
   // /voice
