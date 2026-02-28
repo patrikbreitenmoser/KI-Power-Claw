@@ -445,6 +445,11 @@ export function createBot(): Bot {
     // /agents cancel <id>
     if (arg.startsWith('cancel ')) {
       const id = arg.replace('cancel ', '').trim()
+      const agent = getSubagentInfo(id)
+      if (!agent || agent.chat_id !== chatId) {
+        await ctx.reply(`No running agent found with ID ${id}.`)
+        return
+      }
       const cancelled = cancelSubagent(id)
       if (cancelled) {
         await ctx.reply(`Agent ${id} cancelled.`)
@@ -457,7 +462,7 @@ export function createBot(): Bot {
     // /agents <id> -- show detail for a specific agent
     if (arg && !arg.includes(' ')) {
       const agent = getSubagentInfo(arg)
-      if (!agent) {
+      if (!agent || agent.chat_id !== chatId) {
         await ctx.reply(`No agent found with ID ${arg}.`)
         return
       }
