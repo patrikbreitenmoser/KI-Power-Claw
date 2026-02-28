@@ -18,7 +18,7 @@ const ok = (msg: string) => console.log(`  ${GREEN}✓${RESET} ${msg}`)
 const warn = (msg: string) => console.log(`  ${YELLOW}⚠${RESET} ${msg}`)
 const fail = (msg: string) => console.log(`  ${RED}✗${RESET} ${msg}`)
 
-console.log(`\n${BOLD}ClaudeClaw Status${RESET}\n`)
+console.log(`\n${BOLD}KI Power Claw Status${RESET}\n`)
 
 // Node version
 const nodeVersion = process.versions.node
@@ -84,7 +84,7 @@ if (existsSync(envPath)) {
 }
 
 // Database
-const dbPath = resolve(PROJECT_ROOT, 'store', 'claudeclaw.db')
+const dbPath = resolve(PROJECT_ROOT, 'store', 'kipowerclaw.db')
 if (existsSync(dbPath)) {
   ok('Database exists')
 
@@ -108,7 +108,7 @@ if (existsSync(dbPath)) {
 const os = platform()
 if (os === 'darwin') {
   try {
-    const result = execSync('launchctl list com.claudeclaw.app 2>&1', { encoding: 'utf-8' })
+    const result = execSync('launchctl list com.kipowerclaw.app 2>&1', { encoding: 'utf-8' })
     if (result.includes('PID')) {
       ok('macOS service: running')
     } else {
@@ -119,7 +119,7 @@ if (os === 'darwin') {
   }
 } else if (os === 'linux') {
   try {
-    const result = execSync('systemctl --user is-active claudeclaw 2>&1', { encoding: 'utf-8' }).trim()
+    const result = execSync('systemctl --user is-active kipowerclaw 2>&1', { encoding: 'utf-8' }).trim()
     if (result === 'active') {
       ok('systemd service: running')
     } else {
@@ -131,7 +131,7 @@ if (os === 'darwin') {
 }
 
 // PID file
-const pidPath = resolve(PROJECT_ROOT, 'store', 'claudeclaw.pid')
+const pidPath = resolve(PROJECT_ROOT, 'store', 'kipowerclaw.pid')
 if (existsSync(pidPath)) {
   const pid = readFileSync(pidPath, 'utf-8').trim()
   try {

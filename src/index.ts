@@ -9,7 +9,7 @@ import { initScheduler, stopScheduler } from './scheduler.js'
 import { loadPersona } from './persona.js'
 import { logger } from './logger.js'
 
-const PID_FILE = resolve(STORE_DIR, 'claudeclaw.pid')
+const PID_FILE = resolve(STORE_DIR, 'kipowerclaw.pid')
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 const PINK = '\x1b[38;2;255;64;129m'
@@ -37,7 +37,7 @@ function acquireLock(): void {
     if (oldPid && !isNaN(oldPid)) {
       try {
         process.kill(oldPid, 0) // Check if alive
-        logger.warn({ oldPid }, 'Killing stale ClaudeClaw process')
+        logger.warn({ oldPid }, 'Killing stale KI Power Claw process')
         process.kill(oldPid, 'SIGTERM')
       } catch {
         // Process not running, stale PID file

@@ -9,7 +9,7 @@ let db: Database.Database
 export function getDb(): Database.Database {
   if (!db) {
     mkdirSync(STORE_DIR, { recursive: true })
-    db = new Database(resolve(STORE_DIR, 'claudeclaw.db'))
+    db = new Database(resolve(STORE_DIR, 'kipowerclaw.db'))
     db.pragma('journal_mode = WAL')
   }
   return db

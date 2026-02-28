@@ -1,7 +1,7 @@
 import { Bot, Context, InputFile } from 'grammy'
 import {
   TELEGRAM_BOT_TOKEN,
-  ALLOWED_CHAT_ID,
+  ALLOWED_USER_IDS,
   MAX_MESSAGE_LENGTH,
   TYPING_REFRESH_MS,
   DEFAULT_MODEL,
@@ -142,9 +142,9 @@ export function splitMessage(text: string, limit = MAX_MESSAGE_LENGTH): string[]
 
 // --- Auth ---
 
-function isAuthorised(chatId: number): boolean {
-  if (!ALLOWED_CHAT_ID) return true // First-run mode: allow anyone until configured
-  return String(chatId) === ALLOWED_CHAT_ID
+function isAuthorised(userId: number | undefined): boolean {
+  if (ALLOWED_USER_IDS.size === 0) return true // First-run mode: allow anyone until configured
+  return userId != null && ALLOWED_USER_IDS.has(String(userId))
 }
 
 // --- Message handler ---
@@ -157,10 +157,7 @@ async function handleMessage(
   const chatId = String(ctx.chat?.id)
   if (!chatId || !ctx.chat) return
 
-  if (!isAuthorised(ctx.chat.id)) {
-    await ctx.reply('Unauthorized. Your chat ID: ' + chatId)
-    return
-  }
+  if (!isAuthorised(ctx.from?.id)) return
 
   // Build persona + memory context
   const personaContext = getPersonaContext()
@@ -231,7 +228,7 @@ export function createBot(): Bot {
       .map(c => `/${c.command} - ${c.description}`)
       .join('\n')
     await ctx.reply(
-      'ClaudeClaw is online. Send me a message and I\'ll route it to Claude Code on your machine.\n\n' +
+      'KI Power Claw is online. Send me a message and I\'ll route it to Claude Code on your machine.\n\n' +
         'Commands:\n' + commandList
     )
   })
@@ -243,18 +240,21 @@ export function createBot(): Bot {
 
   // /newchat
   bot.command('newchat', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     clearSession(String(ctx.chat.id))
     await ctx.reply('Session cleared. Next message starts a fresh conversation.')
   })
 
   // /forget (alias)
   bot.command('forget', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     clearSession(String(ctx.chat.id))
     await ctx.reply('Session cleared.')
   })
 
   // /memory
   bot.command('memory', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     const chatId = String(ctx.chat.id)
     const count = getMemoryCount(chatId)
     const recent = getRecentMemoriesSummary(chatId, 5)
@@ -274,6 +274,7 @@ export function createBot(): Bot {
 
   // /voice
   bot.command('voice', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     const chatId = String(ctx.chat.id)
     if (voiceEnabledChats.has(chatId)) {
       voiceEnabledChats.delete(chatId)
@@ -285,6 +286,7 @@ export function createBot(): Bot {
 
   // /model
   bot.command('model', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     const chatId = String(ctx.chat.id)
     const arg = (ctx.message?.text ?? '').replace('/model', '').trim().toLowerCase()
 
@@ -315,6 +317,7 @@ export function createBot(): Bot {
 
   // /schedule
   bot.command('schedule', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
     const text = ctx.message?.text ?? ''
     const parts = text.replace('/schedule', '').trim()
 
@@ -344,10 +347,7 @@ export function createBot(): Bot {
   // Voice notes
   bot.on('message:voice', async (ctx) => {
     const chatId = String(ctx.chat.id)
-    if (!isAuthorised(ctx.chat.id)) {
-      await ctx.reply('Unauthorized.')
-      return
-    }
+    if (!isAuthorised(ctx.from?.id)) return
 
     const { stt } = voiceCapabilities()
     if (!stt) {
@@ -373,7 +373,7 @@ export function createBot(): Bot {
 
   // Photos
   bot.on('message:photo', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
+    if (!isAuthorised(ctx.from?.id)) return
 
     try {
       await ctx.api.sendChatAction(ctx.chat.id, 'typing')
@@ -391,7 +391,7 @@ export function createBot(): Bot {
 
   // Documents
   bot.on('message:document', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
+    if (!isAuthorised(ctx.from?.id)) return
     const doc = ctx.message.document
     if (!doc) return
 
@@ -412,7 +412,7 @@ export function createBot(): Bot {
 
   // Videos
   bot.on('message:video', async (ctx) => {
-    if (!isAuthorised(ctx.chat.id)) return
+    if (!isAuthorised(ctx.from?.id)) return
     const video = ctx.message.video
     if (!video) return
 

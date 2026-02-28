@@ -11,7 +11,12 @@ const env = readEnvFile()
 
 // Telegram
 export const TELEGRAM_BOT_TOKEN = env['TELEGRAM_BOT_TOKEN'] ?? ''
-export const ALLOWED_CHAT_ID = env['ALLOWED_CHAT_ID'] ?? ''
+
+// Allowlist: comma-separated Telegram user IDs (falls back to old ALLOWED_CHAT_ID)
+const rawAllowedIds = env['ALLOWED_USER_IDS'] ?? env['ALLOWED_CHAT_ID'] ?? ''
+export const ALLOWED_USER_IDS: Set<string> = new Set(
+  rawAllowedIds.split(',').map(id => id.trim()).filter(Boolean)
+)
 
 // Voice STT (Groq)
 export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? ''

@@ -98,7 +98,7 @@ async function main() {
   heading('Writing .env')
   const envLines = [
     `TELEGRAM_BOT_TOKEN=${botToken}`,
-    `ALLOWED_CHAT_ID=`,
+    `ALLOWED_USER_IDS=`,
     `GROQ_API_KEY=${groqKey}`,
     `GOOGLE_API_KEY=${googleKey}`,
     `LOG_LEVEL=info`,
@@ -136,7 +136,7 @@ async function main() {
       // Read .env to check if ALLOWED_CHAT_ID was manually set
       try {
         const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
-        const match = envContent.match(/ALLOWED_CHAT_ID=(\d+)/)
+        const match = envContent.match(/ALLOWED_USER_IDS=(\d+)/)
         if (match && match[1]) {
           clearInterval(checkInterval)
           clearTimeout(timer)
@@ -159,7 +159,7 @@ async function main() {
     const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
     writeFileSync(
       resolve(PROJECT_ROOT, '.env'),
-      envContent.replace('ALLOWED_CHAT_ID=', `ALLOWED_CHAT_ID=${chatId}`)
+      envContent.replace('ALLOWED_USER_IDS=', `ALLOWED_USER_IDS=${chatId}`)
     )
     ok(`Chat ID set: ${chatId}`)
   } else {
@@ -187,7 +187,7 @@ async function main() {
   } else {
     console.log('  For Windows, install PM2 globally:')
     console.log('    npm install -g pm2')
-    console.log('    pm2 start dist/index.js --name claudeclaw')
+    console.log('    pm2 start dist/index.js --name kipowerclaw')
     console.log('    pm2 save && pm2 startup')
   }
 
@@ -198,7 +198,7 @@ async function main() {
   console.log(`  ${GREEN}2.${RESET} Open Telegram and message your bot`)
   console.log(`  ${GREEN}3.${RESET} Try: "What can you do?"`)
   console.log('')
-  console.log(`  ${DIM}Logs: /tmp/claudeclaw.log (if service installed)${RESET}`)
+  console.log(`  ${DIM}Logs: /tmp/kipowerclaw.log (if service installed)${RESET}`)
   console.log(`  ${DIM}Status: npm run status${RESET}`)
   console.log('')
 
@@ -206,7 +206,7 @@ async function main() {
 }
 
 function installLaunchd(): void {
-  const label = 'com.claudeclaw.app'
+  const label = 'com.kipowerclaw.app'
   const nodePath = execSync('which node', { encoding: 'utf-8' }).trim()
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -228,9 +228,9 @@ function installLaunchd(): void {
   <key>ThrottleInterval</key>
   <integer>5</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/claudeclaw.log</string>
+  <string>/tmp/kipowerclaw.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/claudeclaw.log</string>
+  <string>/tmp/kipowerclaw.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -254,7 +254,7 @@ function installLaunchd(): void {
 function installSystemd(): void {
   const nodePath = execSync('which node', { encoding: 'utf-8' }).trim()
   const unit = `[Unit]
-Description=ClaudeClaw Telegram Bot
+Description=KI Power Claw Telegram Bot
 After=network.target
 
 [Service]
@@ -271,12 +271,12 @@ WantedBy=default.target
 
   const serviceDir = resolve(homedir(), '.config', 'systemd', 'user')
   execSync(`mkdir -p "${serviceDir}"`)
-  const servicePath = resolve(serviceDir, 'claudeclaw.service')
+  const servicePath = resolve(serviceDir, 'kipowerclaw.service')
   writeFileSync(servicePath, unit)
 
   execSync('systemctl --user daemon-reload')
-  execSync('systemctl --user enable claudeclaw')
-  execSync('systemctl --user start claudeclaw')
+  execSync('systemctl --user enable kipowerclaw')
+  execSync('systemctl --user start kipowerclaw')
   ok(`Service installed: ${servicePath}`)
   ok('Service started and enabled on login.')
 }
