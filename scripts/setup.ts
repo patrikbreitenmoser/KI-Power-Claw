@@ -235,6 +235,34 @@ This isn't just metadata. It's the start of figuring out who you are.
     warn('No chat ID captured. Set ALLOWED_USER_IDS in .env manually, or leave it empty -- the bot will accept anyone until you set it.')
   }
 
+  // Set up QMD for memory search
+  heading('Memory search (QMD)')
+  try {
+    execSync('qmd --version 2>&1', { encoding: 'utf-8' })
+    ok('QMD CLI found')
+
+    const memoryDir = resolve(PROJECT_ROOT, 'memory')
+    console.log(`  Setting up QMD collection for ${memoryDir}...\n`)
+
+    try {
+      execSync(`qmd collection add "${memoryDir}" --name bot-memory --mask "**/*.md" 2>&1`, { encoding: 'utf-8' })
+      ok('QMD collection created')
+    } catch {
+      ok('QMD collection already exists')
+    }
+
+    try {
+      execSync('qmd update 2>&1', { encoding: 'utf-8', timeout: 30_000 })
+      execSync('qmd embed 2>&1', { encoding: 'utf-8', timeout: 120_000 })
+      ok('QMD index built')
+    } catch (err: any) {
+      warn(`QMD indexing failed: ${err.message ?? err}`)
+    }
+  } catch {
+    warn('QMD CLI not found. Memory search won\'t work.')
+    console.log(`  ${DIM}Install it from https://github.com/tobi/qmd${RESET}`)
+  }
+
   // Install background service
   heading('Background service')
   const os = platform()
@@ -276,7 +304,6 @@ This isn't just metadata. It's the start of figuring out who you are.
   }
 
   console.log('')
-  console.log(`  ${DIM}For memory search, install qmd: https://github.com/tobi/qmd${RESET}`)
   console.log(`  ${DIM}Status: npm run status${RESET}`)
   console.log('')
 

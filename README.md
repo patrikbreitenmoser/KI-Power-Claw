@@ -52,7 +52,7 @@ npm install
 npm run setup
 ```
 
-The setup wizard walks you through everything: bot token, API keys, persona, chat ID capture, and background service installation.
+The setup wizard walks you through everything: bot token, API keys, persona, chat ID capture, QMD memory setup, and background service installation.
 
 <details>
 <summary>Manual setup (without wizard)</summary>
@@ -60,19 +60,14 @@ The setup wizard walks you through everything: bot token, API keys, persona, cha
 1. `npm install`
 2. `npm run build`
 3. `cp .env.example .env` and fill in `TELEGRAM_BOT_TOKEN` and `ALLOWED_USER_IDS`
-4. `npm start`
+4. Set up QMD for memory search:
+   ```bash
+   qmd collection add ./memory --name bot-memory --mask "**/*.md"
+   qmd update && qmd embed
+   ```
+5. `npm start`
 
 </details>
-
-### Optional: Memory search with QMD
-
-The bot works without QMD, but for semantic search over conversation history, install [qmd](https://github.com/tobi/qmd) and run:
-
-```bash
-qmd collection add ./memory --name bot-memory --mask "**/*.md"
-qmd update
-qmd embed
-```
 
 ### Dev mode
 
