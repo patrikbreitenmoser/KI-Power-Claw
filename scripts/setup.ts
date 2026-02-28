@@ -101,6 +101,7 @@ async function main() {
     `TELEGRAM_BOT_TOKEN=${botToken}`,
     `ALLOWED_USER_IDS=`,
     `GROQ_API_KEY=${groqKey}`,
+    `GEMINI_API_KEY=${googleKey}`,
     `GOOGLE_API_KEY=${googleKey}`,
     `LOG_LEVEL=info`,
   ]
@@ -134,7 +135,7 @@ async function main() {
     const timer = setTimeout(() => resolve(''), 120_000) // 2 min timeout
 
     const checkInterval = setInterval(() => {
-      // Read .env to check if ALLOWED_CHAT_ID was manually set
+      // Read .env to check if ALLOWED_USER_IDS was manually set
       try {
         const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
         const match = envContent.match(/ALLOWED_USER_IDS=(\d+)/)
@@ -164,7 +165,7 @@ async function main() {
     )
     ok(`Chat ID set: ${chatId}`)
   } else {
-    warn('No chat ID captured. You can set ALLOWED_CHAT_ID in .env manually, or send /chatid to your bot after starting it.')
+    warn('No chat ID captured. You can set ALLOWED_USER_IDS in .env manually, or send /chatid to your bot after starting it.')
   }
 
   // Install background service

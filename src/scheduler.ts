@@ -36,7 +36,14 @@ export async function runDueTasks(): Promise<void> {
     try {
       await sendFn(task.chat_id, `Running scheduled task: ${task.prompt.slice(0, 80)}...`)
 
-      const { text } = await runAgent(task.prompt)
+      const { text } = await runAgent(
+        task.prompt,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { source: 'scheduler', chatId: task.chat_id, taskId: task.id }
+      )
       const result = text ?? '(no response)'
 
       const nextRun = computeNextRun(task.schedule)

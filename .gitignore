@@ -16,3 +16,5 @@ docs/
 memory/*.md
 !memory/MEMORY.md
 memory/archive/
+memory/cold/
+memory/memory_index.json

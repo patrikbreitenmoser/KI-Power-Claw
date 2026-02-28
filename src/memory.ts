@@ -40,8 +40,9 @@ export async function queryMemory(userMessage: string): Promise<string> {
   let qmdSection = ''
   try {
     const results = await searchMemory(userMessage, 5)
-    if (results.length > 0) {
-      const lines = results.map(r => `- (from ${r.file}) ${r.snippet}`)
+    const filtered = results.filter(r => !isMemoryMdResult(r.file))
+    if (filtered.length > 0) {
+      const lines = filtered.map(r => `- (from ${r.file}) ${truncateSnippet(r.snippet)}`)
       qmdSection = `[Relevant past context]\n${lines.join('\n')}`
     }
   } catch (err) {
@@ -94,4 +95,15 @@ export async function appendToDailyLog(
   scheduleReindex()
 
   logger.debug({ logPath }, 'Appended conversation turn to daily log')
+}
+
+function isMemoryMdResult(file: string): boolean {
+  const normalized = file.trim().toLowerCase()
+  return normalized.endsWith('/memory.md') || normalized.endsWith('memory.md')
+}
+
+function truncateSnippet(text: string, maxLen = 400): string {
+  const compact = text.replace(/\s+/g, ' ').trim()
+  if (compact.length <= maxLen) return compact
+  return compact.slice(0, maxLen) + '...'
 }

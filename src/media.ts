@@ -72,7 +72,7 @@ export function buildDocumentMessage(
 export function buildVideoMessage(localPath: string, caption?: string): string {
   const parts = [
     `A video file has been saved at: ${localPath}`,
-    `Please analyze this video. Use the GOOGLE_API_KEY from this project's .env file with the Gemini API to process the video content.`,
+    `Please analyze this video. Use GEMINI_API_KEY (or GOOGLE_API_KEY) from this project's .env file with the Gemini API to process the video content.`,
   ]
   if (caption) parts.push(`User's note: ${caption}`)
   return parts.join('\n')

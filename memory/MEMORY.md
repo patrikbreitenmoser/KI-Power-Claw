@@ -9,7 +9,8 @@ Last consolidated: never
 (Communication style, tools, workflows)
 
 ## Projects
-(Active projects and their context)
+- KI Power (ki-power.ch)
+- WhyAI (whyai.ch)
 
 ## Important Dates
 (Birthdays, deadlines, recurring events)

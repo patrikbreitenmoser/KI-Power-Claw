@@ -12,7 +12,7 @@ import {
   type SubagentRow,
 } from './db.js'
 import { getPersonaContext } from './persona.js'
-import { buildMemoryContext } from './memory.js'
+import { queryMemory } from './memory.js'
 import { logger } from './logger.js'
 
 // --- Types ---
@@ -56,18 +56,17 @@ export function spawnSubagent(
   // Persist to DB
   insertSubagent(id, chatId, description, prompt)
 
-  // Build full context (persona + memory, same as main agent)
-  const personaContext = getPersonaContext()
-  const memoryPrefix = buildMemoryContext(chatId, prompt)
-  const fullPrompt = personaContext + (memoryPrefix || '') +
-    `[Background task: ${description}]\n\n${prompt}`
-
   // Track in memory for cancellation
   const abortController = new AbortController()
   runningAgents.set(id, { id, chatId, description, abortController })
 
-  // Fire and forget -- don't await
-  executeBackground(id, chatId, description, fullPrompt, model).catch((err) => {
+  // Build full context async, then run
+  const personaContext = getPersonaContext()
+  queryMemory(prompt).then(memoryPrefix => {
+    const fullPrompt = personaContext + (memoryPrefix || '') +
+      `[Background task: ${description}]\n\n${prompt}`
+    return executeBackground(id, chatId, description, fullPrompt, abortController, model)
+  }).catch((err) => {
     logger.error({ err, agentId: id }, 'Background agent execution error (unhandled)')
   })
 
@@ -123,9 +122,15 @@ export function runningCount(chatId: string): number {
 
 // --- Background detection ---
 
-const BACKGROUND_KEYWORDS = [
+const BACKGROUND_PHRASES = [
   'in the background',
   'im hintergrund',
+  'in einem subagent',
+  'in einem sub-agent',
+  'als subagent',
+  'als sub-agent',
+  'in a subagent',
+  'in a sub-agent',
   'work on this separately',
   'run this in background',
   'background task',
@@ -133,12 +138,41 @@ const BACKGROUND_KEYWORDS = [
   'handle this separately',
 ]
 
+const BACKGROUND_PATTERNS = [
+  /\b(?:spawn|start|launch|run|use)\s+(?:a\s+|an\s+)?sub-?agent\b/i,
+  /\b(?:starte|start|nutze|verwende)\s+(?:einen\s+|einem\s+)?sub-?agent\b/i,
+  /\b(?:do|handle|work on|run)\b[\s\S]{0,40}\b(?:async|asynchronously|separately)\b/i,
+  /\b(?:mach|bearbeite|erledige)\b[\s\S]{0,40}\b(?:asynchron|separat)\b/i,
+  /\b(?:async|asynchronously|separately)\b[\s\S]{0,40}\b(?:do|handle|work on|run)\b/i,
+  /\b(?:asynchron|separat)\b[\s\S]{0,40}\b(?:erledigen|machen|bearbeiten)\b/i,
+]
+
 /**
  * Check if a user message indicates they want background processing.
  */
 export function detectBackgroundIntent(message: string): boolean {
   const lower = message.toLowerCase()
-  return BACKGROUND_KEYWORDS.some((kw) => lower.includes(kw))
+  if (BACKGROUND_PHRASES.some((kw) => lower.includes(kw))) {
+    return true
+  }
+  return BACKGROUND_PATTERNS.some((pattern) => pattern.test(message))
+}
+
+function buildCompletionMessage(description: string, result: string): string {
+  const mediaLines = result.match(/^MEDIA:\s*.+$/gm) ?? []
+  const textWithoutMedia = result.replace(/^MEDIA:\s*.+$/gm, '').trim()
+  const summary = textWithoutMedia.length > 3000
+    ? `${textWithoutMedia.slice(0, 3000)}\n\n...(truncated, use /agents <id> to see full result)`
+    : textWithoutMedia
+
+  let message = `Background task done: ${description}`
+  if (mediaLines.length > 0) {
+    message += `\n\n${mediaLines.join('\n')}`
+  }
+  if (summary) {
+    message += `\n\n${summary}`
+  }
+  return message
 }
 
 /**
@@ -177,11 +211,19 @@ async function executeBackground(
   chatId: string,
   description: string,
   fullPrompt: string,
+  abortController: AbortController,
   model?: string
 ): Promise<void> {
   try {
     // Run agent without session resume (fresh context)
-    const { text } = await runAgent(fullPrompt, undefined, undefined, model)
+    const { text } = await runAgent(
+      fullPrompt,
+      undefined,
+      undefined,
+      model,
+      abortController,
+      { source: 'subagent', chatId, agentId: id, description }
+    )
     const result = text ?? '(no response)'
 
     // Update DB
@@ -189,11 +231,9 @@ async function executeBackground(
 
     // Notify user
     if (sendFn) {
-      const summary = result.length > 3000
-        ? result.slice(0, 3000) + '\n\n...(truncated, use /agents <id> to see full result)'
-        : result
+      const completionMessage = buildCompletionMessage(description, result)
       try {
-        await sendFn(chatId, `Background task done: ${description}\n\n${summary}`)
+        await sendFn(chatId, completionMessage)
       } catch (notifyErr) {
         logger.error({ err: notifyErr, agentId: id }, 'Failed to notify user about completed subagent')
       }
@@ -201,6 +241,11 @@ async function executeBackground(
 
     logger.info({ agentId: id, chatId }, 'Subagent completed')
   } catch (err) {
+    if (abortController.signal.aborted) {
+      logger.info({ agentId: id }, 'Subagent aborted')
+      return
+    }
+
     const errorMsg = err instanceof Error ? err.message : String(err)
 
     // Update DB

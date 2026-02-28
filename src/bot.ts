@@ -13,7 +13,7 @@ import { getSession, setSession, clearSession } from './db.js'
 import { runAgent } from './agent.js'
 import { queryMemory, appendToDailyLog } from './memory.js'
 import { consolidateDailyLogs } from './consolidation.js'
-import { getPersonaContext, getBotEmoji, reloadPersona } from './persona.js'
+import { getPersonaContext, reloadPersona } from './persona.js'
 import { transcribeAudio, voiceCapabilities } from './voice.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import {
@@ -34,14 +34,11 @@ export const BOT_COMMANDS: Array<{ command: string; description: string }> = [
   { command: 'newchat', description: 'Start a fresh session' },
   { command: 'forget', description: 'Clear session (alias for /newchat)' },
   { command: 'memory', description: 'Show recent memories' },
+  { command: 'consolidate', description: 'Run memory consolidation now' },
   { command: 'model', description: 'Switch Claude model' },
-  { command: 'voice', description: 'Toggle voice reply mode' },
   { command: 'schedule', description: 'Manage scheduled tasks' },
   { command: 'agents', description: 'List background agents' },
 ]
-
-// Track which chats have voice reply mode enabled
-const voiceEnabledChats = new Set<string>()
 
 // Per-chat model overrides
 const modelOverrides = new Map<string, string>()
@@ -166,8 +163,7 @@ function isAuthorised(userId: number | undefined): boolean {
 
 async function handleMessage(
   ctx: Context,
-  rawText: string,
-  forceVoiceReply = false
+  rawText: string
 ): Promise<void> {
   const chatId = String(ctx.chat?.id)
   if (!chatId || !ctx.chat) return
@@ -205,7 +201,14 @@ async function handleMessage(
 
   try {
     const model = resolveModel(chatId)
-    const { text, newSessionId } = await runAgent(fullMessage, sessionId, refreshTyping, model)
+    const { text, newSessionId } = await runAgent(
+      fullMessage,
+      sessionId,
+      refreshTyping,
+      model,
+      undefined,
+      { source: 'message', chatId }
+    )
 
     // Persist session
     if (newSessionId) {
@@ -241,17 +244,27 @@ async function handleMessage(
     const textWithoutMedia = textAfterSubagents.replace(/^MEDIA:\s*.+$/gm, '').trim()
 
     // Send media files first
+    const failedMediaPaths: string[] = []
     for (const mediaPath of mediaPaths) {
       try {
         await ctx.replyWithPhoto(new InputFile(mediaPath))
       } catch (err) {
         logger.error({ err, mediaPath }, 'Failed to send media file')
+        failedMediaPaths.push(mediaPath)
       }
     }
 
+    let finalText = textWithoutMedia
+    if (failedMediaPaths.length > 0) {
+      const suffix = failedMediaPaths.length === 1 ? '' : 's'
+      const failureNotice =
+        `Could not send generated media file${suffix}:\n` + failedMediaPaths.join('\n')
+      finalText = finalText ? `${finalText}\n\n${failureNotice}` : failureNotice
+    }
+
     // Send text response if there's anything left
-    if (textWithoutMedia) {
-      const formatted = formatForTelegram(textWithoutMedia)
+    if (finalText) {
+      const formatted = formatForTelegram(finalText)
       const chunks = splitMessage(formatted)
 
       for (const chunk of chunks) {
@@ -368,18 +381,6 @@ export function createBot(): Bot {
     } catch (err) {
       logger.error({ err }, 'Manual consolidation failed')
       await ctx.reply('Consolidation failed. Check logs.')
-    }
-  })
-
-  // /voice
-  bot.command('voice', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
-    const chatId = String(ctx.chat.id)
-    if (voiceEnabledChats.has(chatId)) {
-      voiceEnabledChats.delete(chatId)
-      await ctx.reply('Voice reply mode: OFF')
-    } else {
-      await ctx.reply('Voice reply requires TTS (not enabled in this build). STT for your voice notes still works.')
     }
   })
 
@@ -535,7 +536,7 @@ export function createBot(): Bot {
       const transcript = await transcribeAudio(localPath)
       logger.info({ chatId, transcript: transcript.slice(0, 100) }, 'Voice transcribed')
 
-      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`, true)
+      await handleMessage(ctx, `[Voice transcribed]: ${transcript}`)
     } catch (err) {
       logger.error({ err }, 'Voice handling failed')
       await ctx.reply('Failed to transcribe voice note.')
@@ -611,13 +612,44 @@ export function createBot(): Bot {
  */
 export function createSendFn(bot: Bot): (chatId: string, text: string) => Promise<void> {
   return async (chatId: string, text: string) => {
-    const formatted = formatForTelegram(text)
-    const chunks = splitMessage(formatted)
-    for (const chunk of chunks) {
+    // Extract MEDIA paths
+    const mediaRegex = /^MEDIA:\s*(.+)$/gm
+    const mediaPaths: string[] = []
+    let match
+    while ((match = mediaRegex.exec(text)) !== null) {
+      mediaPaths.push(match[1].trim())
+    }
+    const textWithoutMedia = text.replace(/^MEDIA:\s*.+$/gm, '').trim()
+
+    // Send media files
+    const failedMediaPaths: string[] = []
+    for (const mediaPath of mediaPaths) {
       try {
-        await bot.api.sendMessage(Number(chatId), chunk, { parse_mode: 'HTML' })
-      } catch {
-        await bot.api.sendMessage(Number(chatId), chunk.replace(/<[^>]+>/g, ''))
+        await bot.api.sendPhoto(Number(chatId), new InputFile(mediaPath))
+      } catch (err) {
+        logger.error({ err, mediaPath }, 'Failed to send media file from subagent')
+        failedMediaPaths.push(mediaPath)
+      }
+    }
+
+    let finalText = textWithoutMedia
+    if (failedMediaPaths.length > 0) {
+      const suffix = failedMediaPaths.length === 1 ? '' : 's'
+      const failureNotice =
+        `Could not send generated media file${suffix}:\n` + failedMediaPaths.join('\n')
+      finalText = finalText ? `${finalText}\n\n${failureNotice}` : failureNotice
+    }
+
+    // Send text
+    if (finalText) {
+      const formatted = formatForTelegram(finalText)
+      const chunks = splitMessage(formatted)
+      for (const chunk of chunks) {
+        try {
+          await bot.api.sendMessage(Number(chatId), chunk, { parse_mode: 'HTML' })
+        } catch {
+          await bot.api.sendMessage(Number(chatId), chunk.replace(/<[^>]+>/g, ''))
+        }
       }
     }
   }

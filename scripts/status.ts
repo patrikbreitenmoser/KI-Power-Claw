@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platform } from 'node:os'
@@ -56,12 +56,16 @@ if (existsSync(envPath)) {
     fail('TELEGRAM_BOT_TOKEN not set')
   }
 
-  // Chat ID
-  const chatId = getValue('ALLOWED_CHAT_ID')
-  if (chatId) {
-    ok(`Chat ID: ${chatId}`)
+  // Allowed user IDs
+  const allowedUserIdsRaw = getValue('ALLOWED_USER_IDS')
+  const allowedUserIds = allowedUserIdsRaw
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean)
+  if (allowedUserIds.length > 0) {
+    ok(`Allowed user IDs: ${allowedUserIds.join(', ')}`)
   } else {
-    warn('ALLOWED_CHAT_ID not set (bot accepts all users)')
+    warn('ALLOWED_USER_IDS not set (bot accepts all users)')
   }
 
   // Groq
@@ -72,15 +76,42 @@ if (existsSync(envPath)) {
     warn('Voice STT (Groq): not configured')
   }
 
-  // Google
+  // Gemini / Google
+  const gemini = getValue('GEMINI_API_KEY')
   const google = getValue('GOOGLE_API_KEY')
-  if (google) {
-    ok('Video analysis (Gemini): configured')
+  if (gemini || google) {
+    if (gemini && google) {
+      ok('Gemini API key: configured (GEMINI_API_KEY + GOOGLE_API_KEY)')
+    } else if (gemini) {
+      ok('Gemini API key: configured (GEMINI_API_KEY)')
+    } else {
+      ok('Gemini API key: configured (GOOGLE_API_KEY)')
+    }
   } else {
-    warn('Video analysis (Gemini): not configured')
+    warn('Gemini API key not configured (set GEMINI_API_KEY or GOOGLE_API_KEY)')
   }
 } else {
   fail('.env not found. Run: npm run setup')
+}
+
+// Memory files
+const memoryDir = resolve(PROJECT_ROOT, 'memory')
+if (existsSync(memoryDir)) {
+  const dailyLogPattern = /^\d{4}-\d{2}-\d{2}\.md$/
+  const files = readdirSync(memoryDir)
+  const dailyLogCount = files.filter(f => dailyLogPattern.test(f)).length
+
+  const memoryFilePath = resolve(memoryDir, 'MEMORY.md')
+  let factCount = 0
+  if (existsSync(memoryFilePath)) {
+    const memoryContent = readFileSync(memoryFilePath, 'utf-8')
+    factCount = memoryContent.split('\n').filter(line => line.startsWith('- ')).length
+  }
+
+  ok(`Memory logs: ${dailyLogCount}`)
+  ok(`Long-term facts: ${factCount}`)
+} else {
+  warn('Memory directory not found')
 }
 
 // Database
@@ -88,14 +119,32 @@ const dbPath = resolve(PROJECT_ROOT, 'store', 'kipowerclaw.db')
 if (existsSync(dbPath)) {
   ok('Database exists')
 
-  // Try to get memory count
+  // Try to get scheduler/subagent stats
   try {
     const Database = (await import('better-sqlite3')).default
     const db = new Database(dbPath, { readonly: true })
-    const memCount = (db.prepare('SELECT COUNT(*) as c FROM memories').get() as { c: number }).c
-    const taskCount = (db.prepare('SELECT COUNT(*) as c FROM scheduled_tasks').get() as { c: number }).c
-    ok(`Memories: ${memCount}`)
-    ok(`Scheduled tasks: ${taskCount}`)
+
+    const tableExists = (table: string): boolean => {
+      const row = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(table) as { name: string } | undefined
+      return !!row
+    }
+
+    if (tableExists('scheduled_tasks')) {
+      const taskCount = (db.prepare('SELECT COUNT(*) as c FROM scheduled_tasks').get() as { c: number }).c
+      ok(`Scheduled tasks: ${taskCount}`)
+    } else {
+      warn('scheduled_tasks table not found')
+    }
+
+    if (tableExists('subagents')) {
+      const subagentCount = (db.prepare('SELECT COUNT(*) as c FROM subagents').get() as { c: number }).c
+      ok(`Subagent runs: ${subagentCount}`)
+    } else {
+      warn('subagents table not found (run latest build once to initialize)')
+    }
+
     db.close()
   } catch {
     warn('Could not read database stats')

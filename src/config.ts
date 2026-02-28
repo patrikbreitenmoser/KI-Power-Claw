@@ -13,8 +13,8 @@ const env = readEnvFile()
 // Telegram
 export const TELEGRAM_BOT_TOKEN = env['TELEGRAM_BOT_TOKEN'] ?? ''
 
-// Allowlist: comma-separated Telegram user IDs (falls back to old ALLOWED_CHAT_ID)
-const rawAllowedIds = env['ALLOWED_USER_IDS'] ?? env['ALLOWED_CHAT_ID'] ?? ''
+// Allowlist: comma-separated Telegram user IDs
+const rawAllowedIds = env['ALLOWED_USER_IDS'] ?? ''
 export const ALLOWED_USER_IDS: Set<string> = new Set(
   rawAllowedIds.split(',').map(id => id.trim()).filter(Boolean)
 )
@@ -22,11 +22,9 @@ export const ALLOWED_USER_IDS: Set<string> = new Set(
 // Voice STT (Groq)
 export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? ''
 
-// Anthropic (for consolidation -- direct Messages API, no agent tools)
-export const ANTHROPIC_API_KEY = env['ANTHROPIC_API_KEY'] ?? ''
-
 // Video analysis (Gemini)
-export const GOOGLE_API_KEY = env['GOOGLE_API_KEY'] ?? ''
+export const GEMINI_API_KEY = env['GEMINI_API_KEY'] ?? env['GOOGLE_API_KEY'] ?? ''
+export const GOOGLE_API_KEY = env['GOOGLE_API_KEY'] ?? env['GEMINI_API_KEY'] ?? ''
 
 // Model
 export const DEFAULT_MODEL = env['DEFAULT_MODEL'] ?? 'claude-sonnet-4-6'
