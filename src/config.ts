@@ -1,0 +1,30 @@
+import { resolve, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readEnvFile } from './env.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+export const PROJECT_ROOT = resolve(__dirname, '..')
+export const STORE_DIR = resolve(PROJECT_ROOT, 'store')
+
+const env = readEnvFile()
+
+// Telegram
+export const TELEGRAM_BOT_TOKEN = env['TELEGRAM_BOT_TOKEN'] ?? ''
+export const ALLOWED_CHAT_ID = env['ALLOWED_CHAT_ID'] ?? ''
+
+// Voice STT (Groq)
+export const GROQ_API_KEY = env['GROQ_API_KEY'] ?? ''
+
+// Video analysis (Gemini)
+export const GOOGLE_API_KEY = env['GOOGLE_API_KEY'] ?? ''
+
+// Model
+export const DEFAULT_MODEL = env['DEFAULT_MODEL'] ?? 'claude-sonnet-4-6'
+
+// Logging
+export const LOG_LEVEL = env['LOG_LEVEL'] ?? 'info'
+
+// Limits
+export const MAX_MESSAGE_LENGTH = 4096
+export const TYPING_REFRESH_MS = 4000
