@@ -4,6 +4,7 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platform, homedir } from 'node:os'
+import { Bot } from 'grammy'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..')
@@ -91,6 +92,12 @@ async function main() {
     process.exit(1)
   }
 
+  // Validate token format (digits:alphanumeric)
+  if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken.trim())) {
+    fail('That doesn\'t look like a valid bot token. Expected format: 123456:ABC-DEF...')
+    process.exit(1)
+  }
+
   console.log('')
   const groqKey = await ask('Groq API key for voice transcription (or press Enter to skip)')
   const googleKey = await ask('Google API key for video analysis (or press Enter to skip)')
@@ -122,42 +129,63 @@ async function main() {
     warn(`Could not open editor. Edit CLAUDE.md manually at:\n    ${resolve(PROJECT_ROOT, 'CLAUDE.md')}`)
   }
 
-  // Get chat ID
+  // Get chat ID by starting the bot temporarily
   heading('Getting your chat ID')
-  console.log('  I\'ll start the bot temporarily. Send /chatid to your bot in Telegram.')
-  console.log(`  ${DIM}Press Enter when ready...${RESET}`)
-  await ask('Press Enter to start bot')
+  console.log('  I\'ll start the bot temporarily to capture your Telegram chat ID.')
+  console.log(`  ${DIM}Open Telegram, find your bot, and send it any message (e.g. "hi").${RESET}`)
+  console.log(`  ${DIM}If you already know your chat ID, paste it below instead.${RESET}\n`)
 
-  console.log('  Starting bot... Send /chatid to your bot now.\n')
+  let chatId = ''
 
-  // Start bot in background, watch for chat ID
-  const chatIdPromise = new Promise<string>((resolve) => {
-    const timer = setTimeout(() => resolve(''), 120_000) // 2 min timeout
+  // Start a temporary bot that listens for the first incoming message
+  const tempBot = new Bot(botToken.trim())
+  let botRunning = false
 
-    const checkInterval = setInterval(() => {
-      // Read .env to check if ALLOWED_USER_IDS was manually set
+  try {
+    await tempBot.init()
+    ok(`Bot connected: @${tempBot.botInfo.username}`)
+  } catch (err: any) {
+    fail(`Invalid bot token: ${err.message ?? err}`)
+    console.log(`  ${DIM}Double-check the token from @BotFather and run setup again.${RESET}`)
+    process.exit(1)
+  }
+
+  const chatIdFromBot = new Promise<string>((resolveId) => {
+    const timer = setTimeout(() => resolveId(''), 120_000) // 2 min timeout
+
+    tempBot.on('message', async (ctx) => {
+      clearTimeout(timer)
+      const id = String(ctx.chat.id)
       try {
-        const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
-        const match = envContent.match(/ALLOWED_USER_IDS=(\d+)/)
-        if (match && match[1]) {
-          clearInterval(checkInterval)
-          clearTimeout(timer)
-          resolve(match[1])
-        }
-      } catch { /* ignore */ }
-    }, 2000)
+        await ctx.reply(`Got it! Your chat ID is ${id}. Finishing setup...`)
+      } catch { /* best effort */ }
+      resolveId(id)
+    })
   })
 
-  console.log(`  ${DIM}Alternatively, paste your chat ID here:${RESET}`)
-  const manualChatId = await ask('Chat ID (or wait for /chatid)')
+  tempBot.start()
+  botRunning = true
+  console.log('  Waiting for a message from you in Telegram...\n')
 
-  let chatId = manualChatId.trim()
-  if (!chatId) {
-    chatId = await chatIdPromise
+  const manualChatId = await Promise.race([
+    ask('Chat ID (or just message the bot)').then(v => v.trim()),
+    chatIdFromBot,
+  ])
+
+  // If the manual input resolved first, use it; otherwise use bot-captured ID
+  if (manualChatId && /^\d+$/.test(manualChatId)) {
+    chatId = manualChatId
+  } else {
+    // Wait for the bot to capture it (may already be resolved)
+    chatId = await chatIdFromBot
+  }
+
+  // Stop the temporary bot
+  if (botRunning) {
+    await tempBot.stop()
   }
 
   if (chatId) {
-    // Update .env with chat ID
     const envContent = readFileSync(resolve(PROJECT_ROOT, '.env'), 'utf-8')
     writeFileSync(
       resolve(PROJECT_ROOT, '.env'),
@@ -165,7 +193,7 @@ async function main() {
     )
     ok(`Chat ID set: ${chatId}`)
   } else {
-    warn('No chat ID captured. You can set ALLOWED_USER_IDS in .env manually, or send /chatid to your bot after starting it.')
+    warn('No chat ID captured. Set ALLOWED_USER_IDS in .env manually, or leave it empty -- the bot will accept anyone until you set it.')
   }
 
   // Install background service
