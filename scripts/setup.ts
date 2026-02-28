@@ -115,19 +115,50 @@ async function main() {
   writeFileSync(resolve(PROJECT_ROOT, '.env'), envLines.join('\n') + '\n')
   ok('.env written')
 
-  // Open CLAUDE.md for personalization
-  heading('Personalizing CLAUDE.md')
-  const editor = process.env.EDITOR ?? 'nano'
-  console.log(`  Opening CLAUDE.md in ${editor}...`)
-  console.log(`  ${DIM}Fill in [YOUR NAME], [YOUR ASSISTANT NAME], and your context.${RESET}`)
-  console.log(`  ${DIM}Save and close when done.${RESET}\n`)
+  // Personalize bot identity and user info
+  heading('Personalizing your bot')
+  console.log(`  ${DIM}Press Enter to keep the default value.${RESET}\n`)
 
-  try {
-    spawnSync(editor, [resolve(PROJECT_ROOT, 'CLAUDE.md')], { stdio: 'inherit' })
-    ok('CLAUDE.md personalized')
-  } catch {
-    warn(`Could not open editor. Edit CLAUDE.md manually at:\n    ${resolve(PROJECT_ROOT, 'CLAUDE.md')}`)
-  }
+  const userName = (await ask('Your name (or press Enter to skip)')).trim()
+  const userTimezone = (await ask('Your timezone, e.g. Europe/Zurich (Enter = Europe/Zurich)')).trim() || 'Europe/Zurich'
+  const botName = (await ask('Name for your bot (Enter = Assistant)')).trim() || 'Assistant'
+  const botEmoji = (await ask('Emoji for your bot (Enter = 🤖)')).trim() || '🤖'
+
+  // Write USER.md
+  const userMd = `# USER.md - About Your Human
+
+Learn about the person you're helping. Update this as you go.
+
+- Name: ${userName}
+- What to call them: ${userName}
+- Pronouns:
+- Timezone: ${userTimezone}
+- Notes:
+
+## Context
+
+<!-- What do they care about? What projects are they working on? -->
+<!-- What annoys them? What makes them laugh? -->
+<!-- Build this over time. -->
+
+The more you know, the better you can help. But remember -- you're learning about a person, not building a dossier. Respect the difference.
+`
+  writeFileSync(resolve(PROJECT_ROOT, 'USER.md'), userMd)
+  ok('USER.md written')
+
+  // Write IDENTITY.md
+  const identityMd = `# IDENTITY.md - Who Am I?
+
+- Name: ${botName}
+- Creature: AI assistant
+- Vibe:
+- Emoji: ${botEmoji}
+- Avatar:
+
+This isn't just metadata. It's the start of figuring out who you are.
+`
+  writeFileSync(resolve(PROJECT_ROOT, 'IDENTITY.md'), identityMd)
+  ok('IDENTITY.md written')
 
   // Get chat ID by starting the bot temporarily
   heading('Getting your chat ID')
