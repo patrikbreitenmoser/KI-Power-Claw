@@ -570,9 +570,25 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
   12. Register `/consolidate` in `BOT_COMMANDS` array and `setMyCommands()` call
 
 - **validation**: Bot starts. Messages create daily log entries. Memory context injected into prompts. `/memory` shows new format. `/consolidate` works and is auth-gated. `/newchat` still clears sessions. No dangling imports.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - **src/index.ts**:
+    - Removed `runDecaySweep` import from `./memory.js`
+    - Added imports: `CronExpressionParser` from `cron-parser`, `consolidateDailyLogs` from `./consolidation.js`, `checkQmdAvailable` from `./qmd.js`, `MEMORY_DIR` from `./config.js`
+    - Removed `DECAY_INTERVAL_MS` constant, `runDecaySweep()` call, and `setInterval(runDecaySweep, ...)` setup
+    - Added `scheduleNextConsolidation()` function: uses `CronExpressionParser.parse('0 23 * * *', { tz: 'Europe/Zurich' })` with chained `setTimeout` for DST-safe nightly scheduling
+    - Startup sequence now: Banner -> validate tokens -> acquireLock() -> initDatabase() -> loadPersona() -> mkdirSync(MEMORY_DIR) -> await checkQmdAvailable() -> consolidateDailyLogs() [try/catch] -> scheduleNextConsolidation() -> cleanupOldUploads() -> createBot() -> setMyCommands() -> initScheduler() -> bot.start()
+    - Shutdown handler: removed `clearInterval(decayTimer)`, consolidation uses setTimeout chains (nothing to clear)
+  - **src/bot.ts**:
+    - Removed imports: `getMemoryCount`, `getRecentMemoriesSummary` from `./db.js`; `buildMemoryContext`, `saveConversationTurn` from `./memory.js`
+    - Added imports: `queryMemory`, `appendToDailyLog` from `./memory.js`; `consolidateDailyLogs` from `./consolidation.js`; `readFile`, `readdir` from `node:fs/promises`; `resolve` from `node:path`; `MEMORY_DIR` from `./config.js`
+    - `handleMessage()`: typing indicator fires before `queryMemory()` (async, could take seconds); `saveConversationTurn` replaced with fire-and-forget `appendToDailyLog().catch(...)`
+    - `/memory` command: reads daily log count from `MEMORY_DIR`, counts `- ` lines in MEMORY.md for long-term facts, shows recent today entries
+    - Added `/consolidate` command: auth-gated, calls `consolidateDailyLogs()`, reports processed/facts count
+    - Added `consolidate` to `BOT_COMMANDS` array
+  - `npm run typecheck`: 0 errors
+  - `npm run build`: success, JS output generated in dist/
+- **files edited/created**: `src/index.ts`, `src/bot.ts`
 
 ### T8: Update CLAUDE.md and Documentation
 - **depends_on**: [T5, T6]
