@@ -462,9 +462,15 @@ T2 ──────┘        ├── T4 ──┬── T5 ──┬── 
      ```
 
 - **validation**: `src/db.ts` compiles. No memory-related exports remain. Sessions and tasks functions work. Config exports `MEMORY_DIR` and `ANTHROPIC_API_KEY`. `npm run build` succeeds after this + T4 changes.
-- **status**: Not Completed
+- **status**: Completed
 - **log**:
-- **files edited/created**:
+  - Removed from `initDatabase()`: memories table, memories_fts virtual table, all 3 FTS5 triggers (memories_ai, memories_ad, memories_au)
+  - Removed all memory CRUD functions: insertMemory, searchMemoriesFts, getRecentMemories, touchMemory, decayAllMemories, getMemoryCount, getRecentMemoriesSummary
+  - Removed MemoryRow interface
+  - Kept intact: getDb (WAL mode), initDatabase (sessions + scheduled_tasks), session CRUD (getSession, setSession, clearSession), scheduler CRUD (createTask, getDueTasks, getAllTasks, getTask, updateTaskAfterRun, setTaskStatus, deleteTask), TaskRow interface, nowSeconds helper
+  - `src/config.ts`: no changes needed -- MEMORY_DIR already added by T4 (line 9), ANTHROPIC_API_KEY already added by T5 (line 26)
+  - Typecheck: db.ts and config.ts compile clean. Expected errors in bot.ts (getMemoryCount, getRecentMemoriesSummary, buildMemoryContext, saveConversationTurn) and index.ts (runDecaySweep) -- these will be fixed in T7
+- **files edited/created**: `src/db.ts`
 
 ### T7: Wire Up Integration -- `index.ts` + `bot.ts`
 - **depends_on**: [T5, T6]
