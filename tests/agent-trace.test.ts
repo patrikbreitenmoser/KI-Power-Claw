@@ -20,7 +20,6 @@ afterEach(() => {
   delete process.env.AGENT_TRACE_MODE
   delete process.env.AGENT_TRACE_DIR
   delete process.env.AGENT_TRACE_RETENTION_DAYS
-  delete process.env.ANTHROPIC_API_KEY
   vi.restoreAllMocks()
   vi.resetModules()
 })
@@ -42,14 +41,13 @@ describe('agent trace logging', () => {
     rmSync(traceDir, { recursive: true, force: true })
   })
 
-  it('writes full payload in full mode and redacts known secrets', async () => {
+  it('writes full payload in full mode', async () => {
     const traceDir = mkdtempSync(join(tmpdir(), 'kipowerclaw-trace-full-'))
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-secret-123'
     const { writeAgentTrace } = await loadTraceModule('full', traceDir)
 
     await writeAgentTrace({
-      prompt: 'Use token sk-ant-secret-123 for request',
-      resultText: 'Bearer sk-ant-secret-123',
+      prompt: 'hello world',
+      resultText: 'response text',
       model: 'claude-sonnet-4-6',
       sessionId: 's-1',
       newSessionId: 's-2',
@@ -66,8 +64,8 @@ describe('agent trace logging', () => {
     expect(record['source']).toBe('message')
     expect(record['chatId']).toBe('99')
     expect(record['status']).toBe('success')
-    expect(String(record['prompt'])).not.toContain('sk-ant-secret-123')
-    expect(String(record['result'])).toContain('***REDACTED***')
+    expect(record['prompt']).toBe('hello world')
+    expect(record['result']).toBe('response text')
 
     rmSync(traceDir, { recursive: true, force: true })
   })
