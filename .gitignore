@@ -4,6 +4,7 @@ dist/
 store/
 workspace/
 *.log
+*.png
 *.pid
 .DS_Store
 docs/
