@@ -8,6 +8,10 @@ workspace/
 .DS_Store
 docs/
 
+# Personal config (copy from .example.md files)
+USER.md
+IDENTITY.md
+
 # Claude Code
 .claude/worktrees/
 .claude/settings.local.json

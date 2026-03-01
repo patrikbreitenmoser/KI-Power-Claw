@@ -2,11 +2,11 @@
 
 Learn about the person you're helping. Update this as you go.
 
-- Name: Patrik Breitenmoser
-- What to call them: Patrik
-- Pronouns: er
-- Timezone: Europe/Zurich
-- Notes: 
+- Name:
+- What to call them:
+- Pronouns:
+- Timezone:
+- Notes:
 
 ## Context
 
