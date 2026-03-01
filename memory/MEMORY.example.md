@@ -2,14 +2,14 @@
 
 Last consolidated: never
 
-## About 
-
+## About [User]
+(Personal information, interests, background)
 
 ## Preferences
 (Communication style, tools, workflows)
 
 ## Projects
-
+(Active projects and their locations)
 
 ## Important Dates
 (Birthdays, deadlines, recurring events)

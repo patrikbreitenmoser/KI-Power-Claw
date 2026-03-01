@@ -54,6 +54,14 @@ npm run setup
 
 The setup wizard walks you through everything: bot token, API keys, persona, chat ID capture, QMD memory setup, and background service installation.
 
+**First-time memory setup:**
+
+```bash
+cp memory/MEMORY.example.md memory/MEMORY.md
+```
+
+Edit `memory/MEMORY.md` to add your personal information, preferences, and projects.
+
 <details>
 <summary>Manual setup (without wizard)</summary>
 
@@ -118,6 +126,8 @@ Notes:
 ### Storage
 
 - `memory/MEMORY.md`: long-term hot memory, always included in context
+  - **First use:** Copy `memory/MEMORY.example.md` to `memory/MEMORY.md` and customize
+  - This file is gitignored - your personal memory stays local
 - `memory/YYYY-MM-DD.md`: daily conversation logs
 - `memory/archive/`: archived daily logs after consolidation
 - `memory/cold/`: demoted memory entries (still searchable via QMD)

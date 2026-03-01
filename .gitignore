@@ -13,8 +13,12 @@ docs/
 .claude/settings.local.json
 
 # Memory system
-memory/*.md
-!memory/MEMORY.md
-memory/archive/
-memory/cold/
-memory/memory_index.json
+memory/*
+!memory/.gitkeep
+!memory/MEMORY.example.md
+!memory/archive/
+memory/archive/*
+!memory/archive/.gitkeep
+!memory/cold/
+memory/cold/*
+!memory/cold/.gitkeep
