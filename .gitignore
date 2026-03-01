@@ -20,7 +20,6 @@ IDENTITY.md
 # Memory system
 memory/*
 !memory/.gitkeep
-!memory/MEMORY.example.md
 !memory/archive/
 memory/archive/*
 !memory/archive/.gitkeep
