@@ -2,15 +2,14 @@
 
 Last consolidated: never
 
-## About Patrik
-- Spielt Golf, Handicap 2.5. Letztes Jahr sehr gut gespielt (positiver Outlier), Grund unklar. Sorge dass bei schlechtem Saisonstart das Handicap wieder steigt.
+## About 
+
 
 ## Preferences
 (Communication style, tools, workflows)
 
 ## Projects
-- KI Power (ki-power.ch)
-- WhyAI (whyai.ch)
+
 
 ## Important Dates
 (Birthdays, deadlines, recurring events)
