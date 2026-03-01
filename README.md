@@ -54,13 +54,25 @@ npm run setup
 
 The setup wizard walks you through everything: bot token, API keys, persona, chat ID capture, QMD memory setup, and background service installation.
 
-**First-time memory setup:**
-
-```bash
-cp memory/MEMORY.example.md memory/MEMORY.md
-```
-
-Edit `memory/MEMORY.md` to add your personal information, preferences, and projects.
+> **Note for AI assistants:** `npm run setup` is an interactive terminal wizard.
+> If you cannot run interactive prompts, ask the user for the following and set up manually:
+>
+> **Required:**
+> - Telegram bot token (from [@BotFather](https://t.me/BotFather))
+> - User's name and timezone
+> - Bot name and emoji
+> - Telegram chat ID (user can get this from [@userinfobot](https://t.me/userinfobot))
+>
+> **Optional:**
+> - Groq API key (for voice transcription)
+> - Gemini API key (for video analysis and image generation)
+>
+> Then create these files:
+> 1. `.env` from `.env.example` — fill in `TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_IDS`, and any optional API keys (`GROQ_API_KEY`, `GOOGLE_API_KEY`)
+> 2. `USER.md` — user name and timezone
+> 3. `IDENTITY.md` — bot name, emoji, creature type, vibe
+> 4. `memory/MEMORY.md` — initialize with default template headings
+> 5. Run: `qmd collection add ./memory --name bot-memory --mask "**/*.md" && qmd update && qmd embed`
 
 <details>
 <summary>Manual setup (without wizard)</summary>
@@ -126,7 +138,7 @@ Notes:
 ### Storage
 
 - `memory/MEMORY.md`: long-term hot memory, always included in context
-  - **First use:** Copy `memory/MEMORY.example.md` to `memory/MEMORY.md` and customize
+  - Generated automatically by `npm run setup`
   - This file is gitignored - your personal memory stays local
 - `memory/YYYY-MM-DD.md`: daily conversation logs
 - `memory/archive/`: archived daily logs after consolidation
