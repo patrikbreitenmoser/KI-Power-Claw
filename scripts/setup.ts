@@ -248,6 +248,37 @@ This isn't just metadata. It's the start of figuring out who you are.
   heading('Memory search (QMD)')
   const memoryDir = resolve(PROJECT_ROOT, 'memory')
 
+  // Initialize MEMORY.md if it doesn't exist
+  const memoryMdPath = resolve(memoryDir, 'MEMORY.md')
+  if (!existsSync(memoryMdPath)) {
+    const memoryMd = `# Long-Term Memory
+
+Last consolidated: never
+
+## About ${userName || '[User]'}
+(Personal information, interests, background)
+
+## Preferences
+(Communication style, tools, workflows)
+
+## Projects
+(Active projects and their locations)
+
+## Important Dates
+(Birthdays, deadlines, recurring events)
+
+## Active Threads
+(What you're currently working on -- update as projects progress)
+
+## Misc
+(Anything else worth remembering)
+`
+    writeFileSync(memoryMdPath, memoryMd)
+    ok('memory/MEMORY.md created')
+  } else {
+    ok('memory/MEMORY.md already exists')
+  }
+
   try {
     execSync(`qmd collection add "${memoryDir}" --name bot-memory --mask "**/*.md" 2>&1`, { encoding: 'utf-8' })
     ok('QMD collection created')

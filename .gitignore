@@ -4,9 +4,14 @@ dist/
 store/
 workspace/
 *.log
+*.png
 *.pid
 .DS_Store
 docs/
+
+# Personal config (copy from .example.md files)
+USER.md
+IDENTITY.md
 
 # Claude Code
 .claude/worktrees/
@@ -15,7 +20,6 @@ docs/
 # Memory system
 memory/*
 !memory/.gitkeep
-!memory/MEMORY.example.md
 !memory/archive/
 memory/archive/*
 !memory/archive/.gitkeep
