@@ -1,10 +1,10 @@
 import { createInterface } from 'node:readline'
+import { createHash } from 'node:crypto'
 import { execSync, spawnSync } from 'node:child_process'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { platform, homedir } from 'node:os'
-import { Bot } from 'grammy'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = resolve(__dirname, '..')
@@ -176,61 +176,89 @@ This isn't just metadata. It's the start of figuring out who you are.
   writeFileSync(resolve(PROJECT_ROOT, 'IDENTITY.md'), identityMd)
   ok('IDENTITY.md written')
 
-  // Get chat ID by starting the bot temporarily
+  // Get chat ID by polling Telegram API directly (avoids conflicts with running bot instances)
   heading('Getting your chat ID')
 
   let chatId = ''
 
-  // Start a temporary bot that listens for the first incoming message
-  const tempBot = new Bot(botToken.trim())
-  let botRunning = false
+  const trimmedToken = botToken.trim()
+  const apiBase = `https://api.telegram.org/bot${trimmedToken}`
 
+  // Validate token and get bot info
+  let botUsername = ''
   try {
-    await tempBot.init()
-    ok(`Bot connected: @${tempBot.botInfo.username}`)
+    const meResp = await fetch(`${apiBase}/getMe`)
+    const meData = await meResp.json() as any
+    if (!meData.ok) throw new Error(meData.description || 'Invalid token')
+    botUsername = meData.result.username
+    ok(`Bot connected: @${botUsername}`)
   } catch (err: any) {
     fail(`Invalid bot token: ${err.message ?? err}`)
     console.log(`  ${DIM}Double-check the token from @BotFather and run setup again.${RESET}`)
     process.exit(1)
   }
 
-  console.log(`  Open Telegram, search for @${tempBot.botInfo.username}, and send any message (e.g. "hi").`)
+  // Delete any existing webhook so polling works
+  await fetch(`${apiBase}/deleteWebhook`)
+
+  console.log(`  Open Telegram, search for @${botUsername}, and send any message (e.g. "hi").`)
   console.log(`  ${DIM}If you already know your chat ID, paste it below instead.${RESET}\n`)
 
-  const chatIdFromBot = new Promise<string>((resolveId) => {
-    const timer = setTimeout(() => resolveId(''), 120_000) // 2 min timeout
+  // Poll for a message using short getUpdates calls (no long-polling conflict)
+  const pollForChatId = async (): Promise<string> => {
+    const deadline = Date.now() + 120_000 // 2 min timeout
+    let offset = -1
+    // Clear any old updates first
+    try {
+      const clear = await fetch(`${apiBase}/getUpdates?offset=-1&timeout=0`)
+      const clearData = await clear.json() as any
+      if (clearData.ok && clearData.result.length > 0) {
+        offset = clearData.result[clearData.result.length - 1].update_id + 1
+      }
+    } catch { /* best effort */ }
 
-    tempBot.on('message', async (ctx) => {
-      clearTimeout(timer)
-      const id = String(ctx.chat.id)
+    while (Date.now() < deadline) {
       try {
-        await ctx.reply(`Got it! Your chat ID is ${id}. Finishing setup...`)
-      } catch { /* best effort */ }
-      resolveId(id)
-    })
-  })
+        const resp = await fetch(`${apiBase}/getUpdates?offset=${offset}&timeout=5&limit=1`)
+        const data = await resp.json() as any
+        if (data.ok && data.result.length > 0) {
+          const update = data.result[0]
+          const msg = update.message || update.edited_message
+          if (msg?.chat?.id) {
+            const id = String(msg.chat.id)
+            // Send confirmation (best effort)
+            try {
+              await fetch(`${apiBase}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: id, text: `Got it! Your chat ID is ${id}. Finishing setup...` }),
+              })
+            } catch { /* best effort */ }
+            return id
+          }
+          offset = update.update_id + 1
+        }
+      } catch {
+        // Network error, wait and retry
+        await new Promise(r => setTimeout(r, 2000))
+      }
+    }
+    return ''
+  }
 
-  tempBot.start()
-  botRunning = true
   console.log('  Waiting for a message from you in Telegram...\n')
 
   const askAc = new AbortController()
   const manualChatId = await Promise.race([
     ask('Chat ID (or just message the bot)', { signal: askAc.signal }).then(v => v.trim()),
-    chatIdFromBot.then(id => { askAc.abort(); return id }),
+    pollForChatId().then(id => { askAc.abort(); return id }),
   ])
 
-  // If the manual input resolved first, use it; otherwise use bot-captured ID
+  // If the manual input resolved first, use it; otherwise use polled ID
   if (manualChatId && /^\d+$/.test(manualChatId)) {
     chatId = manualChatId
   } else {
-    // Wait for the bot to capture it (may already be resolved)
-    chatId = await chatIdFromBot
-  }
-
-  // Stop the temporary bot
-  if (botRunning) {
-    await tempBot.stop()
+    chatId = manualChatId || ''
   }
 
   if (chatId) {
@@ -280,7 +308,8 @@ Last consolidated: never
   }
 
   try {
-    execSync(`qmd collection add "${memoryDir}" --name bot-memory --mask "**/*.md" 2>&1`, { encoding: 'utf-8' })
+    const qmdSuffix = createHash('md5').update(PROJECT_ROOT).digest('hex').slice(0, 6)
+    execSync(`qmd collection add "${memoryDir}" --name bot-memory-${qmdSuffix} --mask "**/*.md" 2>&1`, { encoding: 'utf-8' })
     ok('QMD collection created')
   } catch {
     ok('QMD collection already exists')
@@ -323,7 +352,7 @@ Last consolidated: never
   }
 
   // Done
-  const username = tempBot.botInfo.username
+  const username = botUsername
   heading('Setup complete!')
 
   if (serviceInstalled) {

@@ -72,7 +72,8 @@ The setup wizard walks you through everything: bot token, API keys, persona, cha
 > 2. `USER.md` — user name and timezone
 > 3. `IDENTITY.md` — bot name, emoji, creature type, vibe
 > 4. `memory/MEMORY.md` — initialize with default template headings
-> 5. Run: `qmd collection add ./memory --name bot-memory --mask "**/*.md" && qmd update && qmd embed`
+> 5. Run: `qmd collection add ./memory --name bot-memory-$(md5 -qs "$(pwd)" | cut -c1-6) --mask "**/*.md" && qmd update && qmd embed`
+>    (The collection name includes a hash suffix unique to this installation directory)
 
 <details>
 <summary>Manual setup (without wizard)</summary>
@@ -82,7 +83,7 @@ The setup wizard walks you through everything: bot token, API keys, persona, cha
 3. `cp .env.example .env` and fill in `TELEGRAM_BOT_TOKEN` and `ALLOWED_USER_IDS`
 4. Set up QMD for memory search:
    ```bash
-   qmd collection add ./memory --name bot-memory --mask "**/*.md"
+   qmd collection add ./memory --name bot-memory-$(md5 -qs "$(pwd)" | cut -c1-6) --mask "**/*.md"
    qmd update && qmd embed
    ```
 5. `npm start`

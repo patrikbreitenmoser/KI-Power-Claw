@@ -3,12 +3,15 @@
 // Always uses execFile (no shell spawning) to prevent injection.
 
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { promisify } from 'node:util'
 import { logger } from './logger.js'
+import { PROJECT_ROOT } from './config.js'
 
 const execFileAsync = promisify(execFile)
 
-const QMD_COLLECTION = 'bot-memory'
+const suffix = createHash('md5').update(PROJECT_ROOT).digest('hex').slice(0, 6)
+const QMD_COLLECTION = `bot-memory-${suffix}`
 
 // ── Types ──────────────────────────────────────────────────
 
