@@ -68,7 +68,7 @@ The setup wizard walks you through everything: bot token, API keys, persona, cha
 > - Gemini API key (for video analysis and image generation)
 >
 > Then create these files:
-> 1. `.env` from `.env.example` — fill in `TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_IDS`, and any optional API keys (`GROQ_API_KEY`, `GOOGLE_API_KEY`)
+> 1. `.env` from `.env.example` — fill in `TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_IDS`, and any optional API keys (`GROQ_API_KEY`, plus one Gemini alias: `GEMINI_API_KEY` or `GOOGLE_API_KEY`)
 > 2. `USER.md` — user name and timezone
 > 3. `IDENTITY.md` — bot name, emoji, creature type, vibe
 > 4. `memory/MEMORY.md` — initialize with default template headings
