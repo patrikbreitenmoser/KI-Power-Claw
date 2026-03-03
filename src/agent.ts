@@ -17,7 +17,8 @@ export async function runAgent(
   onTyping?: () => void,
   model?: string,
   abortController?: AbortController,
-  traceContext?: AgentTraceContext
+  traceContext?: AgentTraceContext,
+  cwd?: string
 ): Promise<AgentResult> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -38,7 +39,7 @@ export async function runAgent(
       prompt: message,
       options: {
         model,
-        cwd: PROJECT_ROOT,
+        cwd: cwd ?? PROJECT_ROOT,
         env: forwardedEnv,
         resume: sessionId,
         abortController,

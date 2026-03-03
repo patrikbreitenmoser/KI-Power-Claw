@@ -9,6 +9,9 @@ import { cleanupOldUploads } from './media.js'
 import { createBot, createSendFn, BOT_COMMANDS } from './bot.js'
 import { initScheduler, stopScheduler } from './scheduler.js'
 import { initSubagentSystem } from './subagent.js'
+import { initSwarmSystem } from './swarm.js'
+import { startMonitor, stopMonitor, reconcileOnStartup } from './monitor.js'
+import { loadRepos } from './repo.js'
 import { loadPersona } from './persona.js'
 import { logger } from './logger.js'
 
@@ -117,14 +120,25 @@ async function main(): Promise<void> {
   // 7.5. Register commands with Telegram menu
   await bot.api.setMyCommands(BOT_COMMANDS)
 
-  // 8. Initialize scheduler + subagent system
+  // 7.6. Load repos config
+  loadRepos()
+
+  // 8. Initialize scheduler + subagent system + swarm system
   const sendFn = createSendFn(bot)
   initScheduler(sendFn)
   initSubagentSystem(sendFn)
+  initSwarmSystem(sendFn)
+
+  // 8.5. Reconcile orphaned swarm agents from before restart
+  await reconcileOnStartup()
+
+  // 8.6. Start swarm monitor
+  startMonitor(sendFn)
 
   // 9. Graceful shutdown
   const shutdown = () => {
     logger.info('Shutting down...')
+    stopMonitor()
     stopScheduler()
     bot.stop()
     releaseLock()

@@ -134,6 +134,14 @@ async function loadBotFlowHarness(): Promise<BotFlowHarness> {
     TYPING_REFRESH_MS: 4000,
     DEFAULT_MODEL: 'claude-sonnet-4-6',
     MEMORY_DIR: '/tmp/not-used',
+    PROJECT_ROOT: '/tmp/not-used',
+    STORE_DIR: '/tmp/not-used',
+    AGENT_LOG_DIR: '/tmp/not-used',
+    AGENT_WORKSPACE_ROOT: '/tmp/not-used',
+    MAX_CONCURRENT_SWARM_AGENTS: 8,
+    SWARM_AGENT_BUDGET_USD: 5.0,
+    SWARM_DAILY_BUDGET_USD: 50.0,
+    SWARM_MONITOR_INTERVAL_MS: 120000,
   }))
   vi.doMock('../src/db.js', () => ({
     getSession: getSessionMock,
@@ -173,6 +181,26 @@ async function loadBotFlowHarness(): Promise<BotFlowHarness> {
     runningCount: runningCountMock,
     detectBackgroundIntent: detectBackgroundIntentMock,
     parseSubagentBlocks: parseSubagentBlocksMock,
+  }))
+  vi.doMock('../src/swarm.js', () => ({
+    spawnSwarmAgent: vi.fn(),
+    steerAgent: vi.fn().mockReturnValue(false),
+    getAgentOutput: vi.fn().mockReturnValue(''),
+    killSwarmAgent: vi.fn().mockReturnValue(false),
+    listSwarmAgents: vi.fn().mockReturnValue([]),
+    runningSwarmCount: vi.fn().mockReturnValue(0),
+  }))
+  vi.doMock('../src/repo.js', () => ({
+    listRepos: vi.fn().mockReturnValue([]),
+    setActiveChatRepo: vi.fn().mockReturnValue(false),
+    getActiveChatRepo: vi.fn().mockReturnValue(null),
+    loadRepos: vi.fn(),
+    getReposConfig: vi.fn().mockReturnValue({ workspace_root: '/tmp', repos: [] }),
+    resolveRepoFromMessage: vi.fn().mockReturnValue(null),
+    getEffectiveRepo: vi.fn().mockReturnValue({ id: 'test', path: '/tmp', aliases: [], default_branch: 'main' }),
+    getSelfRepo: vi.fn().mockReturnValue({ id: 'test', path: '/tmp', aliases: [], default_branch: 'main' }),
+    getRepoById: vi.fn().mockReturnValue(null),
+    getWorkspaceRoot: vi.fn().mockReturnValue('/tmp'),
   }))
   vi.doMock('../src/logger.js', () => ({
     logger: {

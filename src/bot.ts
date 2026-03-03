@@ -26,6 +26,15 @@ import {
   detectBackgroundIntent,
   parseSubagentBlocks,
 } from './subagent.js'
+import {
+  spawnSwarmAgent,
+  steerAgent,
+  getAgentOutput,
+  killSwarmAgent,
+  listSwarmAgents,
+  runningSwarmCount,
+} from './swarm.js'
+import { listRepos, setActiveChatRepo, getActiveChatRepo, type RepoConfig } from './repo.js'
 import { logger } from './logger.js'
 
 export const BOT_COMMANDS: Array<{ command: string; description: string }> = [
@@ -38,6 +47,8 @@ export const BOT_COMMANDS: Array<{ command: string; description: string }> = [
   { command: 'model', description: 'Switch Claude model' },
   { command: 'schedule', description: 'Manage scheduled tasks' },
   { command: 'agents', description: 'List background agents' },
+  { command: 'swarm', description: 'Manage swarm agents' },
+  { command: 'repo', description: 'Switch active repository' },
 ]
 
 // Per-chat model overrides
@@ -507,6 +518,161 @@ export function createBot(): Bot {
     }
     msg += '\nUse /agents <id> for details, /agents cancel <id> to cancel.'
     await ctx.reply(msg)
+  })
+
+  // /swarm
+  bot.command('swarm', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
+    const chatId = String(ctx.chat.id)
+    const arg = (ctx.message?.text ?? '').replace('/swarm', '').trim()
+
+    if (!arg) {
+      const running = runningSwarmCount()
+      await ctx.reply(
+        `Swarm agents: ${running} running\n\n` +
+          'Commands:\n' +
+          '/swarm status - Show all swarm agents\n' +
+          '/swarm spawn "<task>" [--agent=codex|claude-code] [--repo=id] - Spawn agent\n' +
+          '/swarm output <id> - See agent output\n' +
+          '/swarm steer <id> "<message>" - Redirect an agent\n' +
+          '/swarm kill <id> - Kill an agent\n'
+      )
+      return
+    }
+
+    // /swarm status
+    if (arg === 'status') {
+      const agents = listSwarmAgents(15)
+      if (agents.length === 0) {
+        await ctx.reply('No swarm agents yet.')
+        return
+      }
+
+      const STATUS_ICONS: Record<string, string> = {
+        running: '...',
+        completed: 'ok',
+        failed: 'ERR',
+        cancelled: 'X',
+      }
+
+      let msg = 'Swarm agents:\n\n'
+      for (const a of agents) {
+        const icon = STATUS_ICONS[a.status] ?? a.status
+        const cost = a.costUsd > 0 ? ` $${a.costUsd.toFixed(2)}` : ''
+        const pr = a.prNumber ? ` PR#${a.prNumber}` : ''
+        const ci = a.ciStatus !== 'none' ? ` CI:${a.ciStatus}` : ''
+        msg += `[${icon}] ${a.id} ${a.agentType ?? ''} - ${a.description.slice(0, 50)}${pr}${ci}${cost}\n`
+      }
+      await ctx.reply(msg)
+      return
+    }
+
+    // /swarm spawn "task" --agent=codex --repo=kipowerclaw
+    if (arg.startsWith('spawn ')) {
+      const spawnArg = arg.slice(6).trim()
+
+      // Parse flags
+      const agentMatch = spawnArg.match(/--agent=(\S+)/)
+      const repoMatch = spawnArg.match(/--repo=(\S+)/)
+      const agentType = (agentMatch?.[1] ?? 'claude-code') as 'claude-code' | 'codex' | 'gemini'
+      const repoId = repoMatch?.[1]
+
+      // Extract task (everything not a flag)
+      const task = spawnArg
+        .replace(/--agent=\S+/g, '')
+        .replace(/--repo=\S+/g, '')
+        .replace(/^["']|["']$/g, '')
+        .trim()
+
+      if (!task) {
+        await ctx.reply('Usage: /swarm spawn "describe the task" --agent=codex --repo=myrepo')
+        return
+      }
+
+      try {
+        const result = await spawnSwarmAgent({
+          chatId,
+          description: task.slice(0, 80),
+          prompt: task,
+          agentType,
+          repoId,
+        })
+        const running = runningSwarmCount()
+        await ctx.reply(
+          `Swarm agent spawned (${result.id})\n` +
+            `Type: ${agentType}\n` +
+            `Branch: ${result.branch}\n` +
+            `${running} swarm agent${running === 1 ? '' : 's'} running.`
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        await ctx.reply(`Failed to spawn swarm agent: ${msg}`)
+      }
+      return
+    }
+
+    // /swarm output <id>
+    if (arg.startsWith('output ')) {
+      const id = arg.slice(7).trim()
+      const output = getAgentOutput(id, 30)
+      await ctx.reply(`Output for ${id}:\n\n${output.slice(0, 3000)}`)
+      return
+    }
+
+    // /swarm steer <id> "message"
+    if (arg.startsWith('steer ')) {
+      const parts = arg.slice(6).trim().split(/\s+/, 2)
+      const id = parts[0]
+      const message = arg.slice(6 + id.length).trim().replace(/^["']|["']$/g, '')
+      if (!id || !message) {
+        await ctx.reply('Usage: /swarm steer <id> "focus on the API layer"')
+        return
+      }
+      const ok = steerAgent(id, message)
+      await ctx.reply(ok ? `Sent to agent ${id}: ${message}` : `Agent ${id} not found or not running.`)
+      return
+    }
+
+    // /swarm kill <id>
+    if (arg.startsWith('kill ')) {
+      const id = arg.slice(5).trim()
+      const ok = killSwarmAgent(id)
+      await ctx.reply(ok ? `Agent ${id} killed.` : `Agent ${id} not found.`)
+      return
+    }
+
+    await ctx.reply('Unknown swarm command. Try /swarm for help.')
+  })
+
+  // /repo
+  bot.command('repo', async (ctx) => {
+    if (!isAuthorised(ctx.from?.id)) return
+    const chatId = String(ctx.chat.id)
+    const arg = (ctx.message?.text ?? '').replace('/repo', '').trim()
+
+    const repos = listRepos()
+
+    if (!arg) {
+      const active = getActiveChatRepo(chatId)
+      let msg = 'Available repositories:\n\n'
+      for (const r of repos) {
+        const marker = active?.id === r.id ? ' (active)' : ''
+        const self = r.is_self ? ' [self]' : ''
+        msg += `- ${r.id}: ${r.name}${self}${marker}\n`
+        msg += `  aliases: ${r.aliases.join(', ')}\n`
+      }
+      msg += '\nUsage: /repo <id> to switch active repo'
+      await ctx.reply(msg)
+      return
+    }
+
+    const ok = setActiveChatRepo(chatId, arg)
+    if (ok) {
+      const repo = repos.find(r => r.id === arg)
+      await ctx.reply(`Active repo set to: ${repo?.name ?? arg}`)
+    } else {
+      await ctx.reply(`Repo not found: ${arg}\nAvailable: ${repos.map(r => r.id).join(', ')}`)
+    }
   })
 
   // Text messages

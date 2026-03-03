@@ -1,0 +1,16 @@
+{
+  "workspace_root": "~/agent-workspaces",
+  "repos": [
+    {
+      "id": "kipowerclaw",
+      "name": "KI Power Claw",
+      "path": "/Volumes/Daten/Developer/tries/2026-02-28-claude_bot_build",
+      "aliases": ["bot", "claw", "kipowerclaw", "this", "self"],
+      "default_branch": "main",
+      "is_self": true,
+      "language": "typescript",
+      "setup_command": "npm ci",
+      "test_command": "npm test"
+    }
+  ]
+}
