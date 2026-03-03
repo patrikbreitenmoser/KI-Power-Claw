@@ -338,7 +338,7 @@ export function insertSwarmAgent(params: SwarmInsertParams): void {
       params.agentType, params.model ?? null, params.repoId ?? null,
       params.branch ?? null, params.worktreePath ?? null,
       params.tmuxSession ?? null,
-      params.dependsOn ? JSON.stringify(params.dependsOn) : null,
+      params.dependsOn?.length ? JSON.stringify(params.dependsOn) : null,
       params.parentAgentId ?? null
     )
 }
