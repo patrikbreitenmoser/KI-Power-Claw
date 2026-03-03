@@ -575,7 +575,7 @@ export function createBot(): Bot {
       const agentMatch = spawnArg.match(/--agent=(\S+)/)
       const repoMatch = spawnArg.match(/--repo=(\S+)/)
       const agentType = (agentMatch?.[1] ?? 'claude-code') as 'claude-code' | 'codex' | 'gemini'
-      const repoId = repoMatch?.[1]
+      const repoId = repoMatch?.[1] ?? getActiveChatRepo(chatId)?.id
 
       // Extract task (everything not a flag)
       const task = spawnArg
