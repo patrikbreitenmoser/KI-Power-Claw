@@ -6,6 +6,7 @@ import {
   completeSubagent,
   failSubagent,
   getSwarmAgents,
+  getSwarmAgent,
   getDailySwarmCost,
   type SwarmInsertParams,
 } from './db.js'
@@ -151,11 +152,11 @@ export async function spawnSwarmAgent(params: SpawnSwarmParams): Promise<SpawnRe
 
 /**
  * Steer a running swarm agent by sending text to its tmux session.
+ * Enforces chat ownership -- only the chat that spawned the agent can steer it.
  */
-export function steerAgent(agentId: string, message: string): boolean {
-  const agents = getSwarmAgents('running')
-  const agent = agents.find(a => a.id === agentId)
-  if (!agent?.tmux_session) return false
+export function steerAgent(agentId: string, chatId: string, message: string): boolean {
+  const agent = getSwarmAgent(agentId, chatId)
+  if (!agent || agent.status !== 'running' || !agent.tmux_session) return false
 
   tmux.sendKeys(agent.tmux_session, message)
   return true
@@ -163,21 +164,21 @@ export function steerAgent(agentId: string, message: string): boolean {
 
 /**
  * Get recent output from a swarm agent's tmux session.
+ * Enforces chat ownership -- only the chat that spawned the agent can read its output.
  */
-export function getAgentOutput(agentId: string, lines = 50): string {
-  const agents = getSwarmAgents()
-  const agent = agents.find(a => a.id === agentId)
-  if (!agent?.tmux_session) return '(agent not found)'
+export function getAgentOutput(agentId: string, chatId: string, lines = 50): string {
+  const agent = getSwarmAgent(agentId, chatId)
+  if (!agent?.tmux_session) return '(agent not found or access denied)'
 
   return tmux.getOutput(agent.tmux_session, lines)
 }
 
 /**
  * Kill a swarm agent and clean up its resources.
+ * Enforces chat ownership -- only the chat that spawned the agent can kill it.
  */
-export function killSwarmAgent(agentId: string): boolean {
-  const agents = getSwarmAgents()
-  const agent = agents.find(a => a.id === agentId)
+export function killSwarmAgent(agentId: string, chatId: string): boolean {
+  const agent = getSwarmAgent(agentId, chatId)
   if (!agent) return false
 
   if (agent.tmux_session && tmux.isAlive(agent.tmux_session)) {
@@ -187,21 +188,23 @@ export function killSwarmAgent(agentId: string): boolean {
   failSubagent(agentId, 'Killed by user')
 
   // Don't remove worktree immediately -- might want to inspect it
-  logger.info({ agentId }, 'Swarm agent killed')
+  logger.info({ agentId, chatId }, 'Swarm agent killed')
   return true
 }
 
 /**
  * Get count of currently running swarm agents.
+ * Without chatId returns global count (used by preflight/monitor).
+ * With chatId returns count scoped to that chat.
  */
-export function runningSwarmCount(): number {
-  return getSwarmAgents('running').length
+export function runningSwarmCount(chatId?: string): number {
+  return getSwarmAgents('running', chatId).length
 }
 
 /**
- * List all swarm agents with their current status.
+ * List swarm agents with their current status, scoped to a chat.
  */
-export function listSwarmAgents(limit = 20): Array<{
+export function listSwarmAgents(chatId: string, limit = 20): Array<{
   id: string
   status: string
   description: string
@@ -213,7 +216,7 @@ export function listSwarmAgents(limit = 20): Array<{
   costUsd: number
   startedAt: number
 }> {
-  return getSwarmAgents()
+  return getSwarmAgents(undefined, chatId)
     .slice(0, limit)
     .map(a => ({
       id: a.id,

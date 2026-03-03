@@ -527,11 +527,11 @@ export function createBot(): Bot {
     const arg = (ctx.message?.text ?? '').replace('/swarm', '').trim()
 
     if (!arg) {
-      const running = runningSwarmCount()
+      const running = runningSwarmCount(chatId)
       await ctx.reply(
         `Swarm agents: ${running} running\n\n` +
           'Commands:\n' +
-          '/swarm status - Show all swarm agents\n' +
+          '/swarm status - Show your swarm agents\n' +
           '/swarm spawn "<task>" [--agent=codex|claude-code] [--repo=id] - Spawn agent\n' +
           '/swarm output <id> - See agent output\n' +
           '/swarm steer <id> "<message>" - Redirect an agent\n' +
@@ -542,7 +542,7 @@ export function createBot(): Bot {
 
     // /swarm status
     if (arg === 'status') {
-      const agents = listSwarmAgents(15)
+      const agents = listSwarmAgents(chatId, 15)
       if (agents.length === 0) {
         await ctx.reply('No swarm agents yet.')
         return
@@ -597,7 +597,7 @@ export function createBot(): Bot {
           agentType,
           repoId,
         })
-        const running = runningSwarmCount()
+        const running = runningSwarmCount(chatId)
         await ctx.reply(
           `Swarm agent spawned (${result.id})\n` +
             `Type: ${agentType}\n` +
@@ -614,7 +614,7 @@ export function createBot(): Bot {
     // /swarm output <id>
     if (arg.startsWith('output ')) {
       const id = arg.slice(7).trim()
-      const output = getAgentOutput(id, 30)
+      const output = getAgentOutput(id, chatId, 30)
       await ctx.reply(`Output for ${id}:\n\n${output.slice(0, 3000)}`)
       return
     }
@@ -628,7 +628,7 @@ export function createBot(): Bot {
         await ctx.reply('Usage: /swarm steer <id> "focus on the API layer"')
         return
       }
-      const ok = steerAgent(id, message)
+      const ok = steerAgent(id, chatId, message)
       await ctx.reply(ok ? `Sent to agent ${id}: ${message}` : `Agent ${id} not found or not running.`)
       return
     }
@@ -636,7 +636,7 @@ export function createBot(): Bot {
     // /swarm kill <id>
     if (arg.startsWith('kill ')) {
       const id = arg.slice(5).trim()
-      const ok = killSwarmAgent(id)
+      const ok = killSwarmAgent(id, chatId)
       await ctx.reply(ok ? `Agent ${id} killed.` : `Agent ${id} not found.`)
       return
     }

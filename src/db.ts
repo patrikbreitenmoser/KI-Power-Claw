@@ -373,15 +373,38 @@ export function incrementRetryCount(id: string): number {
   return row?.retry_count ?? 0
 }
 
-export function getSwarmAgents(status?: string): SubagentRow[] {
+export function getSwarmAgents(status?: string, chatId?: string): SubagentRow[] {
+  if (status && chatId) {
+    return getDb()
+      .prepare("SELECT * FROM subagents WHERE type = 'swarm' AND status = ? AND chat_id = ? ORDER BY started_at DESC")
+      .all(status, chatId) as SubagentRow[]
+  }
   if (status) {
     return getDb()
       .prepare("SELECT * FROM subagents WHERE type = 'swarm' AND status = ? ORDER BY started_at DESC")
       .all(status) as SubagentRow[]
   }
+  if (chatId) {
+    return getDb()
+      .prepare("SELECT * FROM subagents WHERE type = 'swarm' AND chat_id = ? ORDER BY started_at DESC")
+      .all(chatId) as SubagentRow[]
+  }
   return getDb()
     .prepare("SELECT * FROM subagents WHERE type = 'swarm' ORDER BY started_at DESC")
     .all() as SubagentRow[]
+}
+
+/**
+ * Get a single swarm agent by ID, optionally enforcing chat ownership.
+ * Returns null if not found or if chatId doesn't match.
+ */
+export function getSwarmAgent(id: string, chatId?: string): SubagentRow | null {
+  const row = getDb()
+    .prepare("SELECT * FROM subagents WHERE id = ? AND type = 'swarm'")
+    .get(id) as SubagentRow | undefined
+  if (!row) return null
+  if (chatId && row.chat_id !== chatId) return null
+  return row
 }
 
 export function getBlockedAgents(): SubagentRow[] {
