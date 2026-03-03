@@ -39,7 +39,18 @@ export const TYPING_REFRESH_MS = 4000
 // Swarm
 export const AGENT_WORKSPACE_ROOT = env['AGENT_WORKSPACE_ROOT'] ?? resolve(PROJECT_ROOT, '..', 'agent-workspaces')
 export const AGENT_LOG_DIR = resolve(STORE_DIR, 'agent-logs')
-export const MAX_CONCURRENT_SWARM_AGENTS = parseInt(env['MAX_CONCURRENT_SWARM_AGENTS'] ?? '8', 10)
-export const SWARM_AGENT_BUDGET_USD = parseFloat(env['SWARM_AGENT_BUDGET_USD'] ?? '5.0')
-export const SWARM_DAILY_BUDGET_USD = parseFloat(env['SWARM_DAILY_BUDGET_USD'] ?? '50.0')
-export const SWARM_MONITOR_INTERVAL_MS = parseInt(env['SWARM_MONITOR_INTERVAL_MS'] ?? '120000', 10) // 2 min
+
+function safeInt(raw: string | undefined, fallback: number, min: number): number {
+  const n = parseInt(raw ?? '', 10)
+  return Number.isFinite(n) && n >= min ? n : fallback
+}
+
+function safeFloat(raw: string | undefined, fallback: number, min: number): number {
+  const n = parseFloat(raw ?? '')
+  return Number.isFinite(n) && n >= min ? n : fallback
+}
+
+export const MAX_CONCURRENT_SWARM_AGENTS = safeInt(env['MAX_CONCURRENT_SWARM_AGENTS'], 8, 1)
+export const SWARM_AGENT_BUDGET_USD = safeFloat(env['SWARM_AGENT_BUDGET_USD'], 5.0, 0)
+export const SWARM_DAILY_BUDGET_USD = safeFloat(env['SWARM_DAILY_BUDGET_USD'], 50.0, 0)
+export const SWARM_MONITOR_INTERVAL_MS = safeInt(env['SWARM_MONITOR_INTERVAL_MS'], 120_000, 1000) // 2 min
