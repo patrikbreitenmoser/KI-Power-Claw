@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdirSync, rmSync, symlinkSync, readdirSync } from 'node:fs'
+import { resolve, join } from 'node:path'
 import { getWorkspaceRoot } from './repo.js'
 import { logger } from './logger.js'
 
@@ -55,6 +55,9 @@ export function createWorktree(
     stdio: 'pipe',
     timeout: 30000,
   })
+
+  // Symlink gitignored env files so the agent has access to secrets
+  symlinkEnvFiles(repoPath, worktreePath)
 
   logger.info({ worktreePath, branch, repoId }, 'Created worktree')
   return { path: worktreePath, branch, repoId }
@@ -200,6 +203,29 @@ function detectSetupCommand(path: string): string | null {
   if (existsSync(resolve(path, 'go.mod'))) return 'go mod download'
   if (existsSync(resolve(path, 'Gemfile.lock'))) return 'bundle install'
   return null
+}
+
+/**
+ * Symlink .env files from the source repo into the worktree.
+ * Agents need API keys/secrets but .env is gitignored so worktrees don't get it.
+ * Symlinks keep things in sync without duplication.
+ */
+const ENV_FILE_PATTERNS = ['.env', '.env.local', '.env.development', '.env.development.local']
+
+function symlinkEnvFiles(repoPath: string, worktreePath: string): void {
+  for (const name of ENV_FILE_PATTERNS) {
+    const source = resolve(repoPath, name)
+    const target = resolve(worktreePath, name)
+
+    if (existsSync(source) && !existsSync(target)) {
+      try {
+        symlinkSync(source, target)
+        logger.debug({ file: name }, 'Symlinked env file into worktree')
+      } catch (err) {
+        logger.warn({ err, file: name }, 'Failed to symlink env file')
+      }
+    }
+  }
 }
 
 function branchExistsRemote(repoPath: string, branch: string): boolean {
