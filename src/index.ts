@@ -127,7 +127,7 @@ async function main(): Promise<void> {
   const sendFn = createSendFn(bot)
   initScheduler(sendFn)
   initSubagentSystem(sendFn)
-  initSwarmSystem(sendFn)
+  initSwarmSystem()
 
   // 8.5. Reconcile orphaned swarm agents from before restart
   await reconcileOnStartup()

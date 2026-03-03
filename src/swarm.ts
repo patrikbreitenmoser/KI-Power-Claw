@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { writeFileSync, existsSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   insertSwarmAgent,
-  completeSubagent,
   failSubagent,
   getSwarmAgents,
   getSwarmAgent,
@@ -17,9 +16,7 @@ import { getPersonaContext } from './persona.js'
 import { queryMemory } from './memory.js'
 import {
   MAX_CONCURRENT_SWARM_AGENTS,
-  SWARM_AGENT_BUDGET_USD,
   SWARM_DAILY_BUDGET_USD,
-  PROJECT_ROOT,
 } from './config.js'
 import { logger } from './logger.js'
 
@@ -46,17 +43,9 @@ export interface SpawnResult {
   worktreePath: string
 }
 
-type SendFn = (chatId: string, text: string) => Promise<void>
-
-// --- State ---
-
-let sendFn: SendFn | null = null
-
 // --- Init ---
 
-export function initSwarmSystem(send: SendFn): void {
-  sendFn = send
-
+export function initSwarmSystem(): void {
   if (!tmux.isTmuxAvailable()) {
     logger.warn('tmux is not available -- swarm agents will not work')
     return
