@@ -269,7 +269,9 @@ This isn't just metadata. It's the start of figuring out who you are.
     )
     ok(`Chat ID set: ${chatId}`)
   } else {
-    warn('No chat ID captured. Set ALLOWED_USER_IDS in .env manually, or leave it empty -- the bot will accept anyone until you set it.')
+    warn(
+      'No chat ID captured. Set ALLOWED_USER_IDS in .env manually, or leave it empty so the first private user who messages the bot is registered automatically.'
+    )
   }
 
   // Set up QMD for memory search
