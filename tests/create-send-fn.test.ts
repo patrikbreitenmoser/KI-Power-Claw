@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createSendFn } from '../src/bot.ts'
 
@@ -122,6 +122,7 @@ describe('createSendFn', () => {
 
     const relativePath = 'workspace/generated.png'
     const absolutePath = resolve(process.cwd(), relativePath)
+    mkdirSync(dirname(absolutePath), { recursive: true })
     writeFileSync(absolutePath, 'image-bytes')
 
     try {

@@ -1,5 +1,5 @@
-import { rmSync, writeFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Bot } from 'grammy'
 
@@ -314,6 +314,7 @@ describe('message handling flow', () => {
     const bot = harness.createBot()
 
     const absolutePath = resolve(process.cwd(), 'workspace', 'graph.png')
+    mkdirSync(dirname(absolutePath), { recursive: true })
     writeFileSync(absolutePath, 'image-bytes')
 
     try {
@@ -400,6 +401,7 @@ describe('message handling flow', () => {
     const bot = harness.createBot()
 
     const absolutePath = resolve(process.cwd(), 'workspace', 'fallback-image.png')
+    mkdirSync(dirname(absolutePath), { recursive: true })
     writeFileSync(absolutePath, 'image-bytes')
 
     try {
