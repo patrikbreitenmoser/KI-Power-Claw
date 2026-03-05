@@ -1,3 +1,5 @@
+import { rmSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Bot } from 'grammy'
 
@@ -6,6 +8,8 @@ interface BotFlowHarness {
   runAgentMock: ReturnType<typeof vi.fn>
   getSessionMock: ReturnType<typeof vi.fn>
   setSessionMock: ReturnType<typeof vi.fn>
+  upsertEnvValueMock: ReturnType<typeof vi.fn>
+  allowedUserIds: Set<string>
   queryMemoryMock: ReturnType<typeof vi.fn>
   appendToDailyLogMock: ReturnType<typeof vi.fn>
   getPersonaContextMock: ReturnType<typeof vi.fn>
@@ -16,10 +20,12 @@ interface BotFlowHarness {
   parseSubagentBlocksMock: ReturnType<typeof vi.fn>
 }
 
-async function loadBotFlowHarness(): Promise<BotFlowHarness> {
+async function loadBotFlowHarness(options?: { allowedUserIds?: string[] }): Promise<BotFlowHarness> {
   const runAgentMock = vi.fn()
   const getSessionMock = vi.fn().mockReturnValue(null)
   const setSessionMock = vi.fn()
+  const upsertEnvValueMock = vi.fn().mockResolvedValue(undefined)
+  const allowedUserIds = new Set(options?.allowedUserIds ?? ['1'])
   const queryMemoryMock = vi.fn().mockResolvedValue('')
   const appendToDailyLogMock = vi.fn().mockResolvedValue(undefined)
   const getPersonaContextMock = vi.fn().mockReturnValue('')
@@ -52,6 +58,14 @@ async function loadBotFlowHarness(): Promise<BotFlowHarness> {
             }) as any
         ),
         sendPhoto: vi.fn(
+          async (chatId: number | string) =>
+            ({
+              message_id: 1,
+              date: Math.floor(Date.now() / 1000),
+              chat: { id: Number(chatId), type: 'private' },
+            }) as any
+        ),
+        sendDocument: vi.fn(
           async (chatId: number | string) =>
             ({
               message_id: 1,
@@ -129,11 +143,15 @@ async function loadBotFlowHarness(): Promise<BotFlowHarness> {
   })
   vi.doMock('../src/config.js', () => ({
     TELEGRAM_BOT_TOKEN: 'test-token',
-    ALLOWED_USER_IDS: new Set<string>(),
+    ALLOWED_USER_IDS: allowedUserIds,
     MAX_MESSAGE_LENGTH: 4096,
     TYPING_REFRESH_MS: 4000,
     DEFAULT_MODEL: 'claude-sonnet-4-6',
     MEMORY_DIR: '/tmp/not-used',
+    PROJECT_ROOT: process.cwd(),
+  }))
+  vi.doMock('../src/env.js', () => ({
+    upsertEnvValue: upsertEnvValueMock,
   }))
   vi.doMock('../src/db.js', () => ({
     getSession: getSessionMock,
@@ -190,6 +208,8 @@ async function loadBotFlowHarness(): Promise<BotFlowHarness> {
     runAgentMock,
     getSessionMock,
     setSessionMock,
+    upsertEnvValueMock,
+    allowedUserIds,
     queryMemoryMock,
     appendToDailyLogMock,
     getPersonaContextMock,
@@ -236,6 +256,25 @@ afterEach(() => {
 })
 
 describe('message handling flow', () => {
+  it('bootstraps the first private user as owner and blocks later users', async () => {
+    const harness = await loadBotFlowHarness({ allowedUserIds: [] })
+    harness.runAgentMock.mockResolvedValue({ text: 'Owner hello', newSessionId: undefined })
+    const bot = harness.createBot()
+
+    await dispatchText(bot, 'hello owner', 1, 41, 1, 1)
+
+    expect(harness.upsertEnvValueMock).toHaveBeenCalledWith('ALLOWED_USER_IDS', '41')
+    expect(Array.from(harness.allowedUserIds)).toEqual(['41'])
+    expect(harness.runAgentMock).toHaveBeenCalledTimes(1)
+
+    await dispatchText(bot, 'hello intruder', 1, 99, 2, 2)
+
+    expect(harness.runAgentMock).toHaveBeenCalledTimes(1)
+    const texts = sendMessageCalls(bot).map((call) => String(call[1]))
+    expect(texts[0]).toContain('Registered you as the owner.')
+    expect(texts[texts.length - 1]).toContain('Owner hello')
+  })
+
   it('spawns background subagent immediately when intent is detected', async () => {
     const harness = await loadBotFlowHarness()
     harness.detectBackgroundIntentMock.mockReturnValue(true)
@@ -268,13 +307,20 @@ describe('message handling flow', () => {
       newSessionId: 'sess-2',
     })
     harness.parseSubagentBlocksMock.mockReturnValue({
-      cleaned: 'Hello **World**\nMEDIA: /tmp/graph.png',
+      cleaned: 'Hello **World**\nMEDIA: "workspace/graph.png"',
       subagents: [{ description: 'Research topic', prompt: 'Do deep research' }],
     })
     harness.spawnSubagentMock.mockReturnValue('sub-42')
     const bot = harness.createBot()
 
-    await dispatchText(bot, 'Summarize this project')
+    const absolutePath = resolve(process.cwd(), 'workspace', 'graph.png')
+    writeFileSync(absolutePath, 'image-bytes')
+
+    try {
+      await dispatchText(bot, 'Summarize this project')
+    } finally {
+      rmSync(absolutePath, { force: true })
+    }
 
     expect(harness.runAgentMock).toHaveBeenCalledTimes(1)
     const [fullMessage, sessionId, refreshTyping, model] = harness.runAgentMock.mock.calls[0]
@@ -302,6 +348,7 @@ describe('message handling flow', () => {
     )
     expect(sendTexts.some((text) => text.includes('<b>World</b>'))).toBe(true)
     expect((bot.api.sendPhoto as any).mock.calls).toHaveLength(1)
+    expect((bot.api.sendDocument as any).mock.calls).toHaveLength(0)
   })
 
   it('falls back to plain text when html send fails', async () => {
@@ -335,5 +382,35 @@ describe('message handling flow', () => {
     expect(calls).toHaveLength(2)
     expect(String(calls[0][1])).toContain('<b>World</b>')
     expect(String(calls[1][1])).toBe('Hello World')
+  })
+
+  it('falls back to sending media as a document when photo upload fails', async () => {
+    const harness = await loadBotFlowHarness()
+    harness.detectBackgroundIntentMock.mockReturnValue(false)
+    harness.getPersonaContextMock.mockReturnValue('')
+    harness.queryMemoryMock.mockResolvedValue('')
+    harness.runAgentMock.mockResolvedValue({
+      text: 'MEDIA: "workspace/fallback-image.png"',
+      newSessionId: undefined,
+    })
+    harness.parseSubagentBlocksMock.mockReturnValue({
+      cleaned: 'MEDIA: "workspace/fallback-image.png"',
+      subagents: [],
+    })
+    const bot = harness.createBot()
+
+    const absolutePath = resolve(process.cwd(), 'workspace', 'fallback-image.png')
+    writeFileSync(absolutePath, 'image-bytes')
+
+    try {
+      ;(bot.api.sendPhoto as any).mockRejectedValueOnce(new Error('photo failed'))
+      await dispatchText(bot, 'send image')
+    } finally {
+      rmSync(absolutePath, { force: true })
+    }
+
+    expect((bot.api.sendPhoto as any).mock.calls).toHaveLength(1)
+    expect((bot.api.sendDocument as any).mock.calls).toHaveLength(1)
+    expect((bot.api.sendMessage as any).mock.calls).toHaveLength(0)
   })
 })

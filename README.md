@@ -68,6 +68,7 @@ Edit `memory/MEMORY.md` to add your personal information, preferences, and proje
 1. `npm install`
 2. `npm run build`
 3. `cp .env.example .env` and fill in `TELEGRAM_BOT_TOKEN` and `ALLOWED_USER_IDS`
+   - If `ALLOWED_USER_IDS` is left empty, the first private user who messages the running bot is registered automatically and the bot locks to that user.
 4. Set up QMD for memory search:
    ```bash
    qmd collection add ./memory --name bot-memory --mask "**/*.md"
@@ -88,7 +89,7 @@ npm run dev
 From `.env.example`:
 
 - `TELEGRAM_BOT_TOKEN` (required)
-- `ALLOWED_USER_IDS` (required in practice for private bot use)
+- `ALLOWED_USER_IDS` (optional; if empty, the first private user to message the running bot is registered automatically)
 - `GROQ_API_KEY` (optional, voice STT)
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY` (optional aliases for the same Gemini API key; set one). Used for video analysis and Gemini image workflows/skills (e.g. `nanobana`)
 - `LOG_LEVEL` (optional, default `info`)

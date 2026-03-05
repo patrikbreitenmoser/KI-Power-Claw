@@ -8,6 +8,8 @@ interface BotHarness {
   memoryDir: string
   createBot: typeof import('../src/bot.ts').createBot
   clearSessionMock: ReturnType<typeof vi.fn>
+  upsertEnvValueMock: ReturnType<typeof vi.fn>
+  allowedUserIds: Set<string>
   listRecentMock: ReturnType<typeof vi.fn>
   getSubagentInfoMock: ReturnType<typeof vi.fn>
   cancelSubagentMock: ReturnType<typeof vi.fn>
@@ -15,10 +17,12 @@ interface BotHarness {
 
 const tempDirs: string[] = []
 
-async function loadBotHarness(): Promise<BotHarness> {
+async function loadBotHarness(options?: { allowedUserIds?: string[] }): Promise<BotHarness> {
   const memoryDir = mkdtempSync(join(tmpdir(), 'kipowerclaw-bot-test-'))
   tempDirs.push(memoryDir)
   const clearSessionMock = vi.fn()
+  const upsertEnvValueMock = vi.fn().mockResolvedValue(undefined)
+  const allowedUserIds = new Set(options?.allowedUserIds ?? ['1'])
   const listRecentMock = vi.fn().mockReturnValue([])
   const getSubagentInfoMock = vi.fn().mockReturnValue(null)
   const cancelSubagentMock = vi.fn().mockReturnValue(false)
@@ -44,6 +48,14 @@ async function loadBotHarness(): Promise<BotHarness> {
             }) as any
         ),
         sendPhoto: vi.fn(
+          async (chatId: number | string) =>
+            ({
+              message_id: 1,
+              date: Math.floor(Date.now() / 1000),
+              chat: { id: Number(chatId), type: 'private' },
+            }) as any
+        ),
+        sendDocument: vi.fn(
           async (chatId: number | string) =>
             ({
               message_id: 1,
@@ -120,11 +132,15 @@ async function loadBotHarness(): Promise<BotHarness> {
   })
   vi.doMock('../src/config.js', () => ({
     TELEGRAM_BOT_TOKEN: 'test-token',
-    ALLOWED_USER_IDS: new Set<string>(),
+    ALLOWED_USER_IDS: allowedUserIds,
     MAX_MESSAGE_LENGTH: 4096,
     TYPING_REFRESH_MS: 4000,
     DEFAULT_MODEL: 'claude-sonnet-4-6',
     MEMORY_DIR: memoryDir,
+    PROJECT_ROOT: process.cwd(),
+  }))
+  vi.doMock('../src/env.js', () => ({
+    upsertEnvValue: upsertEnvValueMock,
   }))
   vi.doMock('../src/db.js', () => ({
     getSession: vi.fn().mockReturnValue(null),
@@ -182,6 +198,8 @@ async function loadBotHarness(): Promise<BotHarness> {
     memoryDir,
     createBot,
     clearSessionMock,
+    upsertEnvValueMock,
+    allowedUserIds,
     listRecentMock,
     getSubagentInfoMock,
     cancelSubagentMock,
@@ -246,6 +264,22 @@ describe('/model command flow', () => {
     expect(texts[3]).toContain('Model reset to default: claude-sonnet-4-6')
     expect(harness.clearSessionMock).toHaveBeenCalledTimes(2)
     expect(harness.clearSessionMock).toHaveBeenCalledWith('1')
+  })
+})
+
+describe('/chatid bootstrap flow', () => {
+  it('registers the first private user as owner when the allowlist is empty', async () => {
+    const harness = await loadBotHarness({ allowedUserIds: [] })
+    const bot = harness.createBot()
+
+    await dispatchCommand(bot, '/chatid', 41, 41, 1, 1)
+
+    expect(harness.upsertEnvValueMock).toHaveBeenCalledWith('ALLOWED_USER_IDS', '41')
+    expect(Array.from(harness.allowedUserIds)).toEqual(['41'])
+    expect(sentTexts(bot)).toEqual([
+      'Registered you as the owner.\nYour Telegram user ID is 41.\nFuture access is now limited to you.',
+      'Your Telegram user ID: 41\nCurrent chat ID: 41',
+    ])
   })
 })
 

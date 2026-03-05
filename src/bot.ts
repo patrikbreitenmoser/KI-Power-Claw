@@ -1,6 +1,7 @@
 import { Bot, Context, InputFile } from 'grammy'
+import { existsSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import {
   TELEGRAM_BOT_TOKEN,
   ALLOWED_USER_IDS,
@@ -8,9 +9,11 @@ import {
   TYPING_REFRESH_MS,
   DEFAULT_MODEL,
   MEMORY_DIR,
+  PROJECT_ROOT,
 } from './config.js'
 import { getSession, setSession, clearSession } from './db.js'
 import { runAgent } from './agent.js'
+import { upsertEnvValue } from './env.js'
 import { queryMemory, appendToDailyLog } from './memory.js'
 import { consolidateDailyLogs } from './consolidation.js'
 import { getPersonaContext, reloadPersona } from './persona.js'
@@ -154,9 +157,159 @@ export function splitMessage(text: string, limit = MAX_MESSAGE_LENGTH): string[]
 
 // --- Auth ---
 
-function isAuthorised(userId: number | undefined): boolean {
-  if (ALLOWED_USER_IDS.size === 0) return true // First-run mode: allow anyone until configured
-  return userId != null && ALLOWED_USER_IDS.has(String(userId))
+async function ensureAccess(ctx: Context): Promise<string | null> {
+  if (!ctx.chat || ctx.from?.id == null || ctx.from.is_bot) return null
+
+  const chatId = String(ctx.chat.id)
+  const userId = String(ctx.from.id)
+
+  if (ALLOWED_USER_IDS.has(userId)) {
+    return chatId
+  }
+
+  if (ALLOWED_USER_IDS.size > 0) {
+    logger.warn({ chatId, userId }, 'Rejected unauthorised Telegram user')
+    return null
+  }
+
+  if (ctx.chat.type !== 'private') {
+    logger.warn({ chatId, userId }, 'Ignoring bootstrap attempt outside private chat')
+    return null
+  }
+
+  try {
+    await upsertEnvValue('ALLOWED_USER_IDS', userId)
+    ALLOWED_USER_IDS.clear()
+    ALLOWED_USER_IDS.add(userId)
+    logger.info({ chatId, userId }, 'Registered first private user as bot owner')
+    await ctx.reply(
+      `Registered you as the owner.\n` +
+        `Your Telegram user ID is ${userId}.\n` +
+        `Future access is now limited to you.`
+    )
+    return chatId
+  } catch (err) {
+    logger.error({ err, chatId, userId }, 'Failed to persist bot owner to .env')
+    await ctx.reply('Failed to save your owner ID to .env. Fix the file permissions and try again.')
+    return null
+  }
+}
+
+// --- Telegram response delivery ---
+
+interface TelegramApi {
+  sendMessage: (
+    chatId: number | string,
+    text: string,
+    other?: Record<string, unknown>
+  ) => Promise<unknown>
+  sendPhoto: (chatId: number | string, photo: InputFile) => Promise<unknown>
+  sendDocument: (chatId: number | string, document: InputFile) => Promise<unknown>
+}
+
+interface ExtractedMedia {
+  mediaPaths: string[]
+  text: string
+}
+
+function extractMedia(text: string): ExtractedMedia {
+  const mediaRegex = /^\s*MEDIA:\s*(.+)$/gim
+  const mediaPaths: string[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = mediaRegex.exec(text)) !== null) {
+    const normalized = normalizeMediaPath(match[1])
+    if (normalized) mediaPaths.push(normalized)
+  }
+
+  const textWithoutMedia = text.replace(/^\s*MEDIA:\s*.+$/gim, '').trim()
+  return { mediaPaths, text: textWithoutMedia }
+}
+
+function normalizeMediaPath(rawPath: string): string | null {
+  let value = rawPath.trim()
+  if (!value) return null
+
+  const wrappedBy = value[0]
+  if (
+    (wrappedBy === '"' || wrappedBy === '\'' || wrappedBy === '`') &&
+    value[value.length - 1] === wrappedBy
+  ) {
+    value = value.slice(1, -1).trim()
+  }
+
+  if (!value) return null
+
+  return isAbsolute(value) ? value : resolve(PROJECT_ROOT, value)
+}
+
+async function sendTelegramText(
+  api: TelegramApi,
+  chatId: number | string,
+  text: string
+): Promise<void> {
+  if (!text) return
+
+  const formatted = formatForTelegram(text)
+  const chunks = splitMessage(formatted)
+
+  for (const chunk of chunks) {
+    try {
+      await api.sendMessage(chatId, chunk, { parse_mode: 'HTML' })
+    } catch {
+      await api.sendMessage(chatId, chunk.replace(/<[^>]+>/g, ''))
+    }
+  }
+}
+
+async function sendTelegramMedia(
+  api: TelegramApi,
+  chatId: number | string,
+  mediaPath: string
+): Promise<boolean> {
+  if (!existsSync(mediaPath)) {
+    logger.warn({ mediaPath }, 'Generated media file does not exist')
+    return false
+  }
+
+  try {
+    await api.sendPhoto(chatId, new InputFile(mediaPath))
+    return true
+  } catch (photoErr) {
+    logger.warn({ err: photoErr, mediaPath }, 'Failed to send media as photo, retrying as document')
+  }
+
+  try {
+    await api.sendDocument(chatId, new InputFile(mediaPath))
+    return true
+  } catch (documentErr) {
+    logger.error({ err: documentErr, mediaPath }, 'Failed to send media file')
+    return false
+  }
+}
+
+async function sendTelegramResponse(
+  api: TelegramApi,
+  chatId: number | string,
+  text: string
+): Promise<void> {
+  const { mediaPaths, text: textWithoutMedia } = extractMedia(text)
+
+  const failedMediaPaths: string[] = []
+  for (const mediaPath of mediaPaths) {
+    const sent = await sendTelegramMedia(api, chatId, mediaPath)
+    if (!sent) failedMediaPaths.push(mediaPath)
+  }
+
+  let finalText = textWithoutMedia
+  if (failedMediaPaths.length > 0) {
+    const suffix = failedMediaPaths.length === 1 ? '' : 's'
+    const failureNotice =
+      `Could not send generated media file${suffix}:\n` + failedMediaPaths.join('\n')
+    finalText = finalText ? `${finalText}\n\n${failureNotice}` : failureNotice
+  }
+
+  await sendTelegramText(api, chatId, finalText)
 }
 
 // --- Message handler ---
@@ -165,10 +318,8 @@ async function handleMessage(
   ctx: Context,
   rawText: string
 ): Promise<void> {
-  const chatId = String(ctx.chat?.id)
+  const chatId = await ensureAccess(ctx)
   if (!chatId || !ctx.chat) return
-
-  if (!isAuthorised(ctx.from?.id)) return
 
   // Check if user wants this to run in the background
   if (detectBackgroundIntent(rawText)) {
@@ -234,48 +385,7 @@ async function handleMessage(
       await ctx.reply(`Spawned background agent (${id}): ${sub.description}`)
     }
 
-    // Extract MEDIA paths from response (lines like "MEDIA: /path/to/file")
-    const mediaRegex = /^MEDIA:\s*(.+)$/gm
-    const mediaPaths: string[] = []
-    let match
-    while ((match = mediaRegex.exec(textAfterSubagents)) !== null) {
-      mediaPaths.push(match[1].trim())
-    }
-    const textWithoutMedia = textAfterSubagents.replace(/^MEDIA:\s*.+$/gm, '').trim()
-
-    // Send media files first
-    const failedMediaPaths: string[] = []
-    for (const mediaPath of mediaPaths) {
-      try {
-        await ctx.replyWithPhoto(new InputFile(mediaPath))
-      } catch (err) {
-        logger.error({ err, mediaPath }, 'Failed to send media file')
-        failedMediaPaths.push(mediaPath)
-      }
-    }
-
-    let finalText = textWithoutMedia
-    if (failedMediaPaths.length > 0) {
-      const suffix = failedMediaPaths.length === 1 ? '' : 's'
-      const failureNotice =
-        `Could not send generated media file${suffix}:\n` + failedMediaPaths.join('\n')
-      finalText = finalText ? `${finalText}\n\n${failureNotice}` : failureNotice
-    }
-
-    // Send text response if there's anything left
-    if (finalText) {
-      const formatted = formatForTelegram(finalText)
-      const chunks = splitMessage(formatted)
-
-      for (const chunk of chunks) {
-        try {
-          await ctx.reply(chunk, { parse_mode: 'HTML' })
-        } catch {
-          // Fallback to plain text if HTML parsing fails
-          await ctx.reply(chunk.replace(/<[^>]+>/g, ''))
-        }
-      }
-    }
+    await sendTelegramResponse(ctx.api as TelegramApi, ctx.chat.id, textAfterSubagents)
   } catch (err) {
     logger.error({ err, chatId }, 'handleMessage failed')
     await ctx.reply('Something went wrong. Check the logs.')
@@ -295,6 +405,7 @@ export function createBot(): Bot {
 
   // /start
   bot.command('start', async (ctx) => {
+    if (!(await ensureAccess(ctx))) return
     const commandList = BOT_COMMANDS
       .filter(c => c.command !== 'start')
       .map(c => `/${c.command} - ${c.description}`)
@@ -307,26 +418,34 @@ export function createBot(): Bot {
 
   // /chatid
   bot.command('chatid', async (ctx) => {
-    await ctx.reply(`Your chat ID: ${ctx.chat.id}`)
+    if (!(await ensureAccess(ctx))) return
+    const userId = ctx.from?.id
+    if (userId == null) return
+    await ctx.reply(
+      `Your Telegram user ID: ${userId}\n` +
+        `Current chat ID: ${ctx.chat.id}`
+    )
   })
 
   // /newchat
   bot.command('newchat', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
-    clearSession(String(ctx.chat.id))
+    const chatId = await ensureAccess(ctx)
+    if (!chatId) return
+    clearSession(chatId)
     await ctx.reply('Session cleared. Next message starts a fresh conversation.')
   })
 
   // /forget (alias)
   bot.command('forget', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
-    clearSession(String(ctx.chat.id))
+    const chatId = await ensureAccess(ctx)
+    if (!chatId) return
+    clearSession(chatId)
     await ctx.reply('Session cleared.')
   })
 
   // /memory
   bot.command('memory', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
 
     // Count daily log files
     let dailyLogCount = 0
@@ -373,7 +492,7 @@ export function createBot(): Bot {
 
   // /consolidate
   bot.command('consolidate', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
     await ctx.reply('Running consolidation...')
     try {
       const { processed, facts } = await consolidateDailyLogs()
@@ -386,8 +505,8 @@ export function createBot(): Bot {
 
   // /model
   bot.command('model', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
-    const chatId = String(ctx.chat.id)
+    const chatId = await ensureAccess(ctx)
+    if (!chatId) return
     const arg = (ctx.message?.text ?? '').replace('/model', '').trim().toLowerCase()
 
     if (!arg) {
@@ -417,7 +536,7 @@ export function createBot(): Bot {
 
   // /schedule
   bot.command('schedule', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
     const text = ctx.message?.text ?? ''
     const parts = text.replace('/schedule', '').trim()
 
@@ -439,8 +558,8 @@ export function createBot(): Bot {
 
   // /agents
   bot.command('agents', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
-    const chatId = String(ctx.chat.id)
+    const chatId = await ensureAccess(ctx)
+    if (!chatId) return
     const arg = (ctx.message?.text ?? '').replace('/agents', '').trim()
 
     // /agents cancel <id>
@@ -519,7 +638,7 @@ export function createBot(): Bot {
   // Voice notes
   bot.on('message:voice', async (ctx) => {
     const chatId = String(ctx.chat.id)
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
 
     const { stt } = voiceCapabilities()
     if (!stt) {
@@ -545,7 +664,7 @@ export function createBot(): Bot {
 
   // Photos
   bot.on('message:photo', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
 
     try {
       await ctx.api.sendChatAction(ctx.chat.id, 'typing')
@@ -563,7 +682,7 @@ export function createBot(): Bot {
 
   // Documents
   bot.on('message:document', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
     const doc = ctx.message.document
     if (!doc) return
 
@@ -584,7 +703,7 @@ export function createBot(): Bot {
 
   // Videos
   bot.on('message:video', async (ctx) => {
-    if (!isAuthorised(ctx.from?.id)) return
+    if (!(await ensureAccess(ctx))) return
     const video = ctx.message.video
     if (!video) return
 
@@ -612,45 +731,6 @@ export function createBot(): Bot {
  */
 export function createSendFn(bot: Bot): (chatId: string, text: string) => Promise<void> {
   return async (chatId: string, text: string) => {
-    // Extract MEDIA paths
-    const mediaRegex = /^MEDIA:\s*(.+)$/gm
-    const mediaPaths: string[] = []
-    let match
-    while ((match = mediaRegex.exec(text)) !== null) {
-      mediaPaths.push(match[1].trim())
-    }
-    const textWithoutMedia = text.replace(/^MEDIA:\s*.+$/gm, '').trim()
-
-    // Send media files
-    const failedMediaPaths: string[] = []
-    for (const mediaPath of mediaPaths) {
-      try {
-        await bot.api.sendPhoto(Number(chatId), new InputFile(mediaPath))
-      } catch (err) {
-        logger.error({ err, mediaPath }, 'Failed to send media file from subagent')
-        failedMediaPaths.push(mediaPath)
-      }
-    }
-
-    let finalText = textWithoutMedia
-    if (failedMediaPaths.length > 0) {
-      const suffix = failedMediaPaths.length === 1 ? '' : 's'
-      const failureNotice =
-        `Could not send generated media file${suffix}:\n` + failedMediaPaths.join('\n')
-      finalText = finalText ? `${finalText}\n\n${failureNotice}` : failureNotice
-    }
-
-    // Send text
-    if (finalText) {
-      const formatted = formatForTelegram(finalText)
-      const chunks = splitMessage(formatted)
-      for (const chunk of chunks) {
-        try {
-          await bot.api.sendMessage(Number(chatId), chunk, { parse_mode: 'HTML' })
-        } catch {
-          await bot.api.sendMessage(Number(chatId), chunk.replace(/<[^>]+>/g, ''))
-        }
-      }
-    }
+    await sendTelegramResponse(bot.api as TelegramApi, Number(chatId), text)
   }
 }

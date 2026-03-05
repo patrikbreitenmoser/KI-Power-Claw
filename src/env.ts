@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -60,5 +61,41 @@ export function readEnvFile(keys?: string[]): Record<string, string> {
 }
 
 export function clearEnvCache(): void {
+  cached = null
+}
+
+export async function upsertEnvValue(key: string, value: string): Promise<void> {
+  const envPath = resolve(PROJECT_ROOT, '.env')
+  let raw = ''
+
+  try {
+    raw = await readFile(envPath, 'utf-8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  }
+
+  const lines = raw.length > 0 ? raw.split(/\r?\n/) : []
+  let found = false
+  const nextLines = lines.map((line) => {
+    if (line.startsWith(`${key}=`)) {
+      found = true
+      return `${key}=${value}`
+    }
+    return line
+  })
+
+  if (!found) {
+    if (nextLines.length > 0 && nextLines[nextLines.length - 1] !== '') {
+      nextLines.push('')
+    }
+    nextLines.push(`${key}=${value}`)
+  }
+
+  while (nextLines.length > 0 && nextLines[nextLines.length - 1] === '') {
+    nextLines.pop()
+  }
+
+  await writeFile(envPath, nextLines.join('\n') + '\n', 'utf-8')
+
   cached = null
 }

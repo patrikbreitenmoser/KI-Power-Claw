@@ -65,7 +65,7 @@ if (existsSync(envPath)) {
   if (allowedUserIds.length > 0) {
     ok(`Allowed user IDs: ${allowedUserIds.join(', ')}`)
   } else {
-    warn('ALLOWED_USER_IDS not set (bot accepts all users)')
+    warn('ALLOWED_USER_IDS not set (first private user will be registered automatically)')
   }
 
   // Groq
