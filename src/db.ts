@@ -54,7 +54,7 @@ export function initDatabase(): void {
       chat_id TEXT NOT NULL,
       description TEXT NOT NULL,
       prompt TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed','cancelled')),
+      status TEXT NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','failed','cancelled','orphaned')),
       result TEXT,
       started_at INTEGER NOT NULL,
       finished_at INTEGER
@@ -166,7 +166,7 @@ export interface SubagentRow {
   chat_id: string
   description: string
   prompt: string
-  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'orphaned'
   result: string | null
   started_at: number
   finished_at: number | null
@@ -210,6 +210,17 @@ export function cancelSubagent(id: string): void {
     .run(nowSeconds(), id)
 }
 
+export function orphanRunningSubagents(reason = 'Bot restarted before completion.'): number {
+  const result = getDb()
+    .prepare(
+      `UPDATE subagents
+       SET status = 'orphaned', result = ?, finished_at = ?
+       WHERE status = 'running'`
+    )
+    .run(reason.slice(0, 2000), nowSeconds())
+  return result.changes
+}
+
 export function getRunningSubagents(chatId: string): SubagentRow[] {
   return getDb()
     .prepare(
@@ -233,14 +244,43 @@ export function getSubagent(id: string): SubagentRow | null {
   )
 }
 
-export function cleanupOldSubagents(maxAgeSeconds = 7 * 86400): void {
-  const cutoff = nowSeconds() - maxAgeSeconds
-  const deleted = getDb()
-    .prepare('DELETE FROM subagents WHERE finished_at IS NOT NULL AND finished_at < ?')
-    .run(cutoff)
-  if (deleted.changes > 0) {
-    logger.info({ deleted: deleted.changes }, 'Cleaned up old subagent records')
+export function cleanupSubagentsRetention(retentionDays?: {
+  completed?: number
+  cancelled?: number
+  failed?: number
+  orphaned?: number
+}): number {
+  const now = nowSeconds()
+  const policy = {
+    completed: retentionDays?.completed ?? 7,
+    cancelled: retentionDays?.cancelled ?? 7,
+    failed: retentionDays?.failed ?? 14,
+    orphaned: retentionDays?.orphaned ?? 14,
   }
+
+  const statuses = [
+    { status: 'completed', days: policy.completed },
+    { status: 'cancelled', days: policy.cancelled },
+    { status: 'failed', days: policy.failed },
+    { status: 'orphaned', days: policy.orphaned },
+  ] as const
+
+  let deletedCount = 0
+  const stmt = getDb().prepare(
+    'DELETE FROM subagents WHERE status = ? AND finished_at IS NOT NULL AND finished_at < ?'
+  )
+
+  for (const { status, days } of statuses) {
+    const cutoff = now - (days * 86400)
+    const result = stmt.run(status, cutoff)
+    deletedCount += result.changes
+  }
+
+  if (deletedCount > 0) {
+    logger.info({ deleted: deletedCount, policy }, 'Cleaned up old subagent records')
+  }
+
+  return deletedCount
 }
 
 // --- Helpers ---

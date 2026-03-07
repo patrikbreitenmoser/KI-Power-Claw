@@ -11,7 +11,8 @@ interface LoadedSubagent {
   dbCancelSubagentMock: ReturnType<typeof vi.fn>
   queryMemoryMock: ReturnType<typeof vi.fn>
   getPersonaContextMock: ReturnType<typeof vi.fn>
-  cleanupOldSubagentsMock: ReturnType<typeof vi.fn>
+  cleanupSubagentsRetentionMock: ReturnType<typeof vi.fn>
+  orphanRunningSubagentsMock: ReturnType<typeof vi.fn>
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 1500): Promise<void> {
@@ -31,7 +32,8 @@ async function loadSubagentModule(): Promise<LoadedSubagent> {
   const dbCancelSubagentMock = vi.fn()
   const queryMemoryMock = vi.fn()
   const getPersonaContextMock = vi.fn()
-  const cleanupOldSubagentsMock = vi.fn()
+  const cleanupSubagentsRetentionMock = vi.fn()
+  const orphanRunningSubagentsMock = vi.fn()
 
   vi.resetModules()
   vi.doMock('node:crypto', () => ({
@@ -48,7 +50,8 @@ async function loadSubagentModule(): Promise<LoadedSubagent> {
     getRunningSubagents: vi.fn().mockReturnValue([]),
     getRecentSubagents: vi.fn().mockReturnValue([]),
     getSubagent: vi.fn().mockReturnValue(null),
-    cleanupOldSubagents: cleanupOldSubagentsMock,
+    cleanupSubagentsRetention: cleanupSubagentsRetentionMock,
+    orphanRunningSubagents: orphanRunningSubagentsMock,
   }))
   vi.doMock('../src/persona.js', () => ({
     getPersonaContext: getPersonaContextMock,
@@ -76,12 +79,14 @@ async function loadSubagentModule(): Promise<LoadedSubagent> {
     dbCancelSubagentMock,
     queryMemoryMock,
     getPersonaContextMock,
-    cleanupOldSubagentsMock,
+    cleanupSubagentsRetentionMock,
+    orphanRunningSubagentsMock,
   }
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   vi.resetModules()
 })
 
@@ -95,7 +100,8 @@ describe('subagent lifecycle', () => {
       failSubagentMock,
       queryMemoryMock,
       getPersonaContextMock,
-      cleanupOldSubagentsMock,
+      cleanupSubagentsRetentionMock,
+      orphanRunningSubagentsMock,
     } = await loadSubagentModule()
     const sendMock = vi.fn().mockResolvedValue(undefined)
 
@@ -107,7 +113,8 @@ describe('subagent lifecycle', () => {
     })
 
     subagent.initSubagentSystem(sendMock)
-    expect(cleanupOldSubagentsMock).toHaveBeenCalledTimes(1)
+    expect(orphanRunningSubagentsMock).toHaveBeenCalledTimes(1)
+    expect(cleanupSubagentsRetentionMock).toHaveBeenCalledTimes(1)
 
     const id = subagent.spawnSubagent('chat-1', 'Analyze repo', 'Inspect architecture', 'model-x')
     expect(id).toBe('00010203')
@@ -136,6 +143,40 @@ describe('subagent lifecycle', () => {
       expect.stringContaining('Background task done: Analyze repo')
     )
     expect(subagent.runningCount('chat-1')).toBe(0)
+  })
+
+  it('wraps worker prompts to execute directly instead of delegating again', async () => {
+    const {
+      subagent,
+      runAgentMock,
+      queryMemoryMock,
+      getPersonaContextMock,
+    } = await loadSubagentModule()
+    const sendMock = vi.fn().mockResolvedValue(undefined)
+
+    getPersonaContextMock.mockReturnValue('[Persona]\n')
+    queryMemoryMock.mockResolvedValue('')
+    runAgentMock.mockResolvedValue({
+      text: 'MEDIA: /tmp/nanobanana-output.png',
+      newSessionId: undefined,
+    })
+
+    subagent.initSubagentSystem(sendMock)
+    subagent.spawnSubagent(
+      'chat-1',
+      'Generate edgy image',
+      'Please spawn a subagent and make me an image with nanobanana. "a star rising in front of a robot on a mountain"'
+    )
+
+    await waitFor(() => runAgentMock.mock.calls.length > 0)
+    const [fullPrompt] = runAgentMock.mock.calls[0]
+
+    expect(fullPrompt).toContain('[Background worker]')
+    expect(fullPrompt).toContain('Execute the work directly in this session.')
+    expect(fullPrompt).toContain('Do not emit SUBAGENT blocks.')
+    expect(fullPrompt).toContain('If the task names a skill, load and use that skill now.')
+    expect(fullPrompt).toContain('make me an image with nanobanana')
+    expect(fullPrompt).not.toContain('Please spawn a subagent')
   })
 
   it('keeps MEDIA lines in completion notifications even when text is truncated', async () => {
@@ -224,5 +265,24 @@ describe('subagent lifecycle', () => {
     expect(dbCancelSubagentMock).toHaveBeenCalledWith(id)
     expect(subagent.runningCount('chat-1')).toBe(0)
     expect(subagent.cancelSubagent(id)).toBe(false)
+  })
+
+  it('reruns orphaning and retention cleanup on the maintenance interval', async () => {
+    vi.useFakeTimers()
+    const {
+      subagent,
+      cleanupSubagentsRetentionMock,
+      orphanRunningSubagentsMock,
+    } = await loadSubagentModule()
+    const sendMock = vi.fn().mockResolvedValue(undefined)
+
+    subagent.initSubagentSystem(sendMock)
+    expect(orphanRunningSubagentsMock).toHaveBeenCalledTimes(1)
+    expect(cleanupSubagentsRetentionMock).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(6 * 60 * 60 * 1000)
+
+    expect(orphanRunningSubagentsMock).toHaveBeenCalledTimes(2)
+    expect(cleanupSubagentsRetentionMock).toHaveBeenCalledTimes(2)
   })
 })
