@@ -197,6 +197,7 @@ function buildCompletionMessage(description: string, result: string): string {
 
 function buildWorkerPrompt(description: string, prompt: string): string {
   const taskPrompt = stripBackgroundDelegation(prompt)
+  const safeTaskPrompt = taskPrompt.trim() || 'Execute the task described above; do not spawn subagents.'
 
   return [
     '[Background worker]',
@@ -209,7 +210,7 @@ function buildWorkerPrompt(description: string, prompt: string): string {
     '',
     `[Background task: ${description}]`,
     '',
-    taskPrompt,
+    safeTaskPrompt,
   ].join('\n')
 }
 
@@ -231,7 +232,7 @@ function stripBackgroundDelegation(prompt: string): string {
     )
     .filter(Boolean)
 
-  return sanitized.length > 0 ? sanitized.join('\n') : prompt.trim()
+  return sanitized.join('\n')
 }
 
 /**

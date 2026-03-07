@@ -86,6 +86,7 @@ async function loadSubagentModule(): Promise<LoadedSubagent> {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
   vi.resetModules()
 })
 
