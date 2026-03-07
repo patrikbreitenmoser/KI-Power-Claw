@@ -8,7 +8,8 @@ import {
   getRunningSubagents,
   getRecentSubagents,
   getSubagent,
-  cleanupOldSubagents,
+  cleanupSubagentsRetention,
+  orphanRunningSubagents,
   type SubagentRow,
 } from './db.js'
 import { getPersonaContext } from './persona.js'
@@ -30,12 +31,25 @@ interface RunningAgent {
 
 let sendFn: SendFn | null = null
 const runningAgents = new Map<string, RunningAgent>()
+let maintenanceTimer: NodeJS.Timeout | null = null
+
+const SUBAGENT_RETENTION_POLICY = {
+  completed: 7,
+  cancelled: 7,
+  failed: 14,
+  orphaned: 14,
+} as const
+
+const SUBAGENT_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 // --- Init ---
 
 export function initSubagentSystem(send: SendFn): void {
   sendFn = send
-  cleanupOldSubagents()
+  runMaintenance()
+  if (maintenanceTimer) clearInterval(maintenanceTimer)
+  maintenanceTimer = setInterval(runMaintenance, SUBAGENT_MAINTENANCE_INTERVAL_MS)
+  maintenanceTimer.unref?.()
   logger.info('Subagent system initialized')
 }
 
@@ -64,7 +78,7 @@ export function spawnSubagent(
   const personaContext = getPersonaContext()
   queryMemory(prompt).then(memoryPrefix => {
     const fullPrompt = personaContext + (memoryPrefix || '') +
-      `[Background task: ${description}]\n\n${prompt}`
+      buildWorkerPrompt(description, prompt)
     return executeBackground(id, chatId, description, fullPrompt, abortController, model)
   }).catch((err) => {
     logger.error({ err, agentId: id }, 'Background agent execution error (unhandled)')
@@ -120,6 +134,12 @@ export function runningCount(chatId: string): number {
   return count
 }
 
+function runMaintenance(): void {
+  const orphaned = orphanRunningSubagents()
+  const deleted = cleanupSubagentsRetention(SUBAGENT_RETENTION_POLICY)
+  logger.info({ orphaned, deleted }, 'Subagent maintenance completed')
+}
+
 // --- Background detection ---
 
 const BACKGROUND_PHRASES = [
@@ -173,6 +193,45 @@ function buildCompletionMessage(description: string, result: string): string {
     message += `\n\n${summary}`
   }
   return message
+}
+
+function buildWorkerPrompt(description: string, prompt: string): string {
+  const taskPrompt = stripBackgroundDelegation(prompt)
+
+  return [
+    '[Background worker]',
+    'You are the spawned background worker for this task.',
+    'Execute the work directly in this session.',
+    'Do not say that you will start another subagent, background task, or async worker.',
+    'Do not emit SUBAGENT blocks.',
+    'If the task names a skill, load and use that skill now.',
+    'If you generate files or media, include `MEDIA: <absolute path>` lines for each output file.',
+    '',
+    `[Background task: ${description}]`,
+    '',
+    taskPrompt,
+  ].join('\n')
+}
+
+function stripBackgroundDelegation(prompt: string): string {
+  const lines = prompt
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const sanitized = lines
+    .map(line => line
+      .replace(/\b(?:please\s+)?(?:spawn|start|launch|run|use)\s+(?:a\s+|an\s+)?sub-?agent\b[:,]?\s*/gi, '')
+      .replace(/\b(?:please\s+)?run\s+this\s+in\s+the\s+background\b[:,]?\s*/gi, '')
+      .replace(/\b(?:please\s+)?background\s+task\b[:,]?\s*/gi, '')
+      .replace(/\b(?:bitte\s+)?(?:starte|start|nutze|verwende)\s+(?:einen\s+|einem\s+)?sub-?agent\b[:,]?\s*/gi, '')
+      .replace(/\b(?:bitte\s+)?mach(?:e)?\s+das\s+im\s+hintergrund\b[:,]?\s*/gi, '')
+      .replace(/\b(?:bitte\s+)?mach(?:e)?\s+das\s+asynchron\b[:,]?\s*/gi, '')
+      .trim()
+    )
+    .filter(Boolean)
+
+  return sanitized.length > 0 ? sanitized.join('\n') : prompt.trim()
 }
 
 /**

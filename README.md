@@ -180,6 +180,9 @@ Flow:
 
 - User can request background execution by including phrases like `"in the background"`.
 - Bot persists subagent runs in SQLite (`subagents` table).
+- On startup, stale `running` subagents from a previous process are marked `orphaned`.
+- Subagent retention runs on startup and every 6 hours.
+- Retention policy: `completed`/`cancelled` 7 days, `failed`/`orphaned` 14 days.
 - `/agents` shows recent runs and details.
 - `/agents cancel <id>` cancels running subagents.
 

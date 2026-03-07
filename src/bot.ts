@@ -616,6 +616,7 @@ export function createBot(): Bot {
       completed: 'ok',
       failed: 'ERR',
       cancelled: 'X',
+      orphaned: '!',
     }
 
     let msg = 'Background agents:\n\n'

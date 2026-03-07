@@ -72,15 +72,17 @@ describe('db session and task operations', () => {
 })
 
 describe('db subagent operations', () => {
-  it('tracks subagent status transitions and cleanup', async () => {
+  it('tracks subagent status transitions, orphaning, and retention cleanup', async () => {
     const { db, storeDir } = await loadDbModule()
     try {
       db.insertSubagent('sub-complete', 'chat-a', 'desc', 'prompt')
       db.insertSubagent('sub-running', 'chat-a', 'desc', 'prompt')
       db.insertSubagent('sub-fail', 'chat-a', 'desc', 'prompt')
+      db.insertSubagent('sub-cancel', 'chat-a', 'desc', 'prompt')
 
       db.completeSubagent('sub-complete', 'x'.repeat(12_000))
       db.failSubagent('sub-fail', 'e'.repeat(3_000))
+      db.cancelSubagent('sub-cancel')
 
       const completed = db.getSubagent('sub-complete')
       const failed = db.getSubagent('sub-fail')
@@ -91,11 +93,23 @@ describe('db subagent operations', () => {
 
       expect(db.getRunningSubagents('chat-a').map((r) => r.id)).toEqual(['sub-running'])
 
-      db.cleanupOldSubagents(-1)
+      expect(db.orphanRunningSubagents('restart')).toBe(1)
+      expect(db.getSubagent('sub-running')?.status).toBe('orphaned')
+      expect(db.getSubagent('sub-running')?.result).toBe('restart')
+
+      expect(
+        db.cleanupSubagentsRetention({
+          completed: -1,
+          cancelled: -1,
+          failed: -1,
+          orphaned: -1,
+        })
+      ).toBe(4)
 
       expect(db.getSubagent('sub-complete')).toBeNull()
       expect(db.getSubagent('sub-fail')).toBeNull()
-      expect(db.getSubagent('sub-running')?.status).toBe('running')
+      expect(db.getSubagent('sub-cancel')).toBeNull()
+      expect(db.getSubagent('sub-running')).toBeNull()
     } finally {
       db.getDb().close()
       rmSync(storeDir, { recursive: true, force: true })
