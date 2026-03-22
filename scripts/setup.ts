@@ -72,13 +72,42 @@ async function main() {
     process.exit(1)
   }
 
-  // Check QMD
+  // Check QMD (auto-install if missing)
   try {
     execSync('qmd --version 2>&1', { encoding: 'utf-8' })
     ok('QMD CLI')
   } catch {
-    fail('QMD CLI not found. Install it from https://github.com/tobi/qmd')
-    process.exit(1)
+    warn('QMD CLI not found. Installing...')
+    try {
+      execSync('npm install -g @tobilu/qmd 2>&1', { encoding: 'utf-8', timeout: 120_000 })
+      ok('QMD CLI installed')
+    } catch (installErr: any) {
+      fail(`Could not install QMD: ${installErr.message ?? installErr}`)
+      fail('Install manually: npm install -g @tobilu/qmd')
+      process.exit(1)
+    }
+  }
+
+  // On macOS, Bun's built-in SQLite doesn't support extension loading.
+  // Homebrew SQLite is required for QMD vector search (sqlite-vec).
+  if (platform() === 'darwin') {
+    try {
+      const brewPrefix = execSync('brew --prefix sqlite 2>/dev/null', { encoding: 'utf-8' }).trim()
+      if (existsSync(resolve(brewPrefix, 'lib', 'libsqlite3.dylib'))) {
+        ok('Homebrew SQLite (extension support)')
+      } else {
+        throw new Error('lib not found')
+      }
+    } catch {
+      warn('Homebrew SQLite not found. Installing (needed for QMD vector search)...')
+      try {
+        execSync('brew install sqlite 2>&1', { encoding: 'utf-8', timeout: 120_000 })
+        ok('Homebrew SQLite installed')
+      } catch {
+        warn('Could not install Homebrew SQLite. Run: brew install sqlite')
+        warn('Without it, QMD vector search (qmd embed) will not work.')
+      }
+    }
   }
 
   // Build the project
