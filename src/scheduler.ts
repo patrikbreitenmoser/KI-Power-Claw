@@ -1,6 +1,7 @@
 import { CronExpressionParser } from 'cron-parser'
 import { getDueTasks, updateTaskAfterRun } from './db.js'
 import { runAgent } from './agent.js'
+import { getPersonaContext } from './persona.js'
 import { logger } from './logger.js'
 
 type Sender = (chatId: string, text: string) => Promise<void>
@@ -42,7 +43,8 @@ export async function runDueTasks(): Promise<void> {
         undefined,
         undefined,
         undefined,
-        { source: 'scheduler', chatId: task.chat_id, taskId: task.id }
+        { source: 'scheduler', chatId: task.chat_id, taskId: task.id },
+        getPersonaContext()
       )
       const result = text ?? '(no response)'
 

@@ -17,7 +17,8 @@ export async function runAgent(
   onTyping?: () => void,
   model?: string,
   abortController?: AbortController,
-  traceContext?: AgentTraceContext
+  traceContext?: AgentTraceContext,
+  systemPrompt?: string
 ): Promise<AgentResult> {
   let newSessionId: string | undefined
   let resultText: string | null = null
@@ -45,6 +46,7 @@ export async function runAgent(
         settingSources: ['project'],
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        ...(systemPrompt && !sessionId ? { systemPrompt } : {}),
       },
     })
 

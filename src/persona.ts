@@ -117,14 +117,6 @@ export function loadPersona(): void {
 }
 
 /**
- * Reload persona files from disk. Use after the bot updates a file.
- */
-export function reloadPersona(): void {
-  loadPersona()
-  logger.info('Persona reloaded from disk')
-}
-
-/**
  * Get the persona context block to prepend to messages.
  */
 export function getPersonaContext(): string {

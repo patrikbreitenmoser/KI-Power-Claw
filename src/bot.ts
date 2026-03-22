@@ -16,7 +16,7 @@ import { runAgent } from './agent.js'
 import { upsertEnvValue } from './env.js'
 import { queryMemory, appendToDailyLog } from './memory.js'
 import { consolidateDailyLogs } from './consolidation.js'
-import { getPersonaContext, reloadPersona } from './persona.js'
+import { getPersonaContext } from './persona.js'
 import { transcribeAudio, voiceCapabilities } from './voice.js'
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js'
 import {
@@ -334,16 +334,16 @@ async function handleMessage(
     return
   }
 
-  // Build persona + memory context
-  const personaContext = getPersonaContext()
+  // Get existing session (determines whether to inject persona)
+  const sessionId = getSession(chatId) ?? undefined
 
   // Start typing immediately (before async memory query)
   ctx.api.sendChatAction(ctx.chat!.id, 'typing').catch(() => {})
   const memoryPrefix = await queryMemory(rawText)
-  const fullMessage = personaContext + (memoryPrefix ? memoryPrefix : '') + rawText
+  const fullMessage = (memoryPrefix ? memoryPrefix : '') + rawText
 
-  // Get existing session
-  const sessionId = getSession(chatId) ?? undefined
+  // Inject persona as system prompt only when starting a fresh session
+  const personaContext = sessionId ? undefined : getPersonaContext()
 
   // Start typing indicator refresh
   const refreshTyping = () => {
@@ -352,22 +352,36 @@ async function handleMessage(
 
   try {
     const model = resolveModel(chatId)
-    const { text, newSessionId } = await runAgent(
+    let { text, newSessionId } = await runAgent(
       fullMessage,
       sessionId,
       refreshTyping,
       model,
       undefined,
-      { source: 'message', chatId }
+      { source: 'message', chatId },
+      personaContext
     )
+
+    // If we tried to resume but got no session back, the session is stale — clear and retry fresh
+    if (sessionId && !newSessionId) {
+      clearSession(chatId)
+      const retried = await runAgent(
+        fullMessage,
+        undefined,
+        refreshTyping,
+        model,
+        undefined,
+        { source: 'message', chatId },
+        getPersonaContext()
+      )
+      text = retried.text
+      newSessionId = retried.newSessionId
+    }
 
     // Persist session
     if (newSessionId) {
       setSession(chatId, newSessionId)
     }
-
-    // Reload persona in case bot updated files during this turn
-    reloadPersona()
 
     if (!text) {
       await ctx.reply('(no response from Claude)')

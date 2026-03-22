@@ -13,7 +13,6 @@ interface BotFlowHarness {
   queryMemoryMock: ReturnType<typeof vi.fn>
   appendToDailyLogMock: ReturnType<typeof vi.fn>
   getPersonaContextMock: ReturnType<typeof vi.fn>
-  reloadPersonaMock: ReturnType<typeof vi.fn>
   spawnSubagentMock: ReturnType<typeof vi.fn>
   runningCountMock: ReturnType<typeof vi.fn>
   detectBackgroundIntentMock: ReturnType<typeof vi.fn>
@@ -29,7 +28,6 @@ async function loadBotFlowHarness(options?: { allowedUserIds?: string[] }): Prom
   const queryMemoryMock = vi.fn().mockResolvedValue('')
   const appendToDailyLogMock = vi.fn().mockResolvedValue(undefined)
   const getPersonaContextMock = vi.fn().mockReturnValue('')
-  const reloadPersonaMock = vi.fn()
   const spawnSubagentMock = vi.fn().mockReturnValue('sub-1')
   const runningCountMock = vi.fn().mockReturnValue(0)
   const detectBackgroundIntentMock = vi.fn().mockReturnValue(false)
@@ -170,7 +168,6 @@ async function loadBotFlowHarness(options?: { allowedUserIds?: string[] }): Prom
   }))
   vi.doMock('../src/persona.js', () => ({
     getPersonaContext: getPersonaContextMock,
-    reloadPersona: reloadPersonaMock,
   }))
   vi.doMock('../src/voice.js', () => ({
     transcribeAudio: vi.fn(),
@@ -213,7 +210,6 @@ async function loadBotFlowHarness(options?: { allowedUserIds?: string[] }): Prom
     queryMemoryMock,
     appendToDailyLogMock,
     getPersonaContextMock,
-    reloadPersonaMock,
     spawnSubagentMock,
     runningCountMock,
     detectBackgroundIntentMock,
@@ -325,13 +321,12 @@ describe('message handling flow', () => {
 
     expect(harness.runAgentMock).toHaveBeenCalledTimes(1)
     const [fullMessage, sessionId, refreshTyping, model] = harness.runAgentMock.mock.calls[0]
-    expect(fullMessage).toBe('[Persona]\n[Memory]\nSummarize this project')
+    expect(fullMessage).toBe('[Memory]\nSummarize this project')
     expect(sessionId).toBe('sess-1')
     expect(typeof refreshTyping).toBe('function')
     expect(model).toBe('claude-sonnet-4-6')
 
     expect(harness.setSessionMock).toHaveBeenCalledWith('1', 'sess-2')
-    expect(harness.reloadPersonaMock).toHaveBeenCalledTimes(1)
     expect(harness.appendToDailyLogMock).toHaveBeenCalledWith(
       'Summarize this project',
       'Original response from model'
