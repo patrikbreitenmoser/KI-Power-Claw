@@ -9,6 +9,19 @@ export interface AgentResult {
   newSessionId?: string
 }
 
+const MEDIA_LINE_REGEX = /^\s*MEDIA:\s*.+$/m
+
+function extractMediaLinesFromToolResult(toolResult: unknown): string[] {
+  const lines: string[] = []
+  const text = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult)
+  for (const line of text.split('\n')) {
+    if (MEDIA_LINE_REGEX.test(line)) {
+      lines.push(line.trim())
+    }
+  }
+  return lines
+}
+
 type AgentRunStatus = 'success' | 'error'
 
 export async function runAgent(
@@ -25,6 +38,7 @@ export async function runAgent(
   let status: AgentRunStatus = 'success'
   let errorText: string | undefined
   const startedAt = Date.now()
+  const collectedMediaLines: string[] = []
 
   // Keep typing indicator alive while waiting
   let typingInterval: ReturnType<typeof setInterval> | undefined
@@ -56,6 +70,12 @@ export async function runAgent(
         logger.debug({ sessionId: newSessionId }, 'Session initialized')
       }
 
+      // Scan tool results (Bash outputs etc.) for MEDIA: lines
+      if (event.type === 'user' && event.tool_use_result != null) {
+        const found = extractMediaLinesFromToolResult(event.tool_use_result)
+        collectedMediaLines.push(...found)
+      }
+
       if (event.type === 'result') {
         if (event.subtype === 'success') {
           resultText = event.result
@@ -85,6 +105,17 @@ export async function runAgent(
       durationMs: Date.now() - startedAt,
       context: traceContext,
     })
+  }
+
+  // Append any MEDIA: lines found in tool outputs that the agent didn't include itself
+  if (collectedMediaLines.length > 0 && resultText != null) {
+    const uniqueMediaLines = [...new Set(collectedMediaLines)]
+    const missingMediaLines = uniqueMediaLines.filter(
+      line => !resultText!.includes(line.replace(/^\s*/, ''))
+    )
+    if (missingMediaLines.length > 0) {
+      resultText = `${resultText}\n\n${missingMediaLines.join('\n')}`
+    }
   }
 
   return { text: resultText, newSessionId }
